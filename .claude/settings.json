@@ -24,7 +24,14 @@
         "matcher": "Edit|Write|MultiEdit",
         "hooks": [
           { "type": "command", "command": "py \"$CLAUDE_PROJECT_DIR/.claude/hooks/guard_no_target_exec.py\"" },
-          { "type": "command", "command": "py \"$CLAUDE_PROJECT_DIR/.claude/hooks/guard_model_access.py\"" }
+          { "type": "command", "command": "py \"$CLAUDE_PROJECT_DIR/.claude/hooks/guard_model_access.py\"" },
+          { "type": "command", "command": "py \"$CLAUDE_PROJECT_DIR/.claude/hooks/protect_secrets.py\"" }
+        ]
+      },
+      {
+        "matcher": "Bash|PowerShell",
+        "hooks": [
+          { "type": "command", "command": "py \"$CLAUDE_PROJECT_DIR/.claude/hooks/block_sql_destructive.py\"" }
         ]
       }
     ],
@@ -33,6 +40,13 @@
         "matcher": "Edit|Write|MultiEdit",
         "hooks": [
           { "type": "command", "command": "py \"$CLAUDE_PROJECT_DIR/.claude/hooks/format.py\"" }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          { "type": "command", "command": "py \"$CLAUDE_PROJECT_DIR/.claude/hooks/quality_gate.py\"" }
         ]
       }
     ]

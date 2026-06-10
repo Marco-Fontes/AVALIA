@@ -6,6 +6,7 @@ marco. Em M0 (src/ vazio) o teste é skip — ainda não há o que varrer.
 
 Rastreabilidade: RNF-05, S-04, T-1006.
 """
+
 from __future__ import annotations
 
 import ast
@@ -24,7 +25,9 @@ def _src_files() -> list[Path]:
     return list(SRC.rglob("*.py")) if SRC.exists() else []
 
 
-@pytest.mark.skipif(not _src_files(), reason="M0: src/ ainda vazio (T-1006 ativa quando houver código)")
+@pytest.mark.skipif(
+    not _src_files(), reason="M0: src/ ainda vazio (T-1006 ativa quando houver código)"
+)
 def test_no_target_execution_in_src() -> None:
     offenders: list[str] = []
     for f in _src_files():
