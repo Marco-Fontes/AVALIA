@@ -1,0 +1,45 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "avalia"
+version = "0.0.0"
+description = "AVALIA — avaliador ESTÁTICO de sistemas multiagentes de IA (Fase 1)"
+requires-python = ">=3.12"
+# Stack fechada (plan.md v1.3 / CLAUDE.md): LangGraph + LangChain + Pydantic v2 +
+# tree-sitter + Postgres/JSONB. Acesso a modelo só via ModelGateway (Anthropic/OpenRouter).
+dependencies = [
+  "pydantic>=2.7",
+  "langgraph>=0.2",
+  "langchain>=0.3",
+  "langchain-anthropic>=0.2",
+  "langchain-openai>=0.2",
+  "tree-sitter>=0.21",
+  "tree-sitter-python>=0.21",
+  "psycopg[binary]>=3.1",
+  "PyYAML>=6.0",
+]
+
+[project.optional-dependencies]
+# LangSmith é opcional — ausência NÃO pode quebrar o import nem a geração do laudo (MS-10).
+observability = ["langsmith>=0.1"]
+dev = ["pytest>=8", "ruff>=0.6", "mypy>=1.11"]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/avalia"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+
+[tool.mypy]
+python_version = "3.12"
+files = ["src"]
+strict = true
+# Deps da stack ainda sem stubs completos: não falhar por import de terceiros.
+ignore_missing_imports = true

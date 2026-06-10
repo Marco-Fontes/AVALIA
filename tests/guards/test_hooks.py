@@ -7,6 +7,7 @@ e verifica decisões de allow/deny. Cobre casos positivos (deve bloquear) e nega
 
 NB: aqui `subprocess` roda os HOOKS DO AVALIA — não o sistema-alvo. RNF-05 íntegro.
 """
+
 from __future__ import annotations
 
 import json
@@ -23,7 +24,10 @@ def run_hook(hook: Path, tool_input: dict, tool_name: str = "Write") -> dict:
     payload = json.dumps({"tool_name": tool_name, "tool_input": tool_input})
     proc = subprocess.run(
         [sys.executable, str(hook)],
-        input=payload, capture_output=True, text=True, timeout=30,
+        input=payload,
+        capture_output=True,
+        text=True,
+        timeout=30,
     )
     out = proc.stdout.strip()
     if not out:
@@ -41,6 +45,7 @@ def w(path: str, content: str) -> dict:
 
 
 # ---------- CC-H01: guard_no_target_exec ----------
+
 
 def test_blocks_exec_in_src():
     r = run_hook(EXEC_GUARD, w("src/avalia/x.py", "def f():\n    exec(code)\n"))
@@ -76,11 +81,13 @@ def test_subprocess_warns_not_blocks():
 
 
 def test_clean_src_passes():
-    r = run_hook(EXEC_GUARD, w("src/avalia/x.py", "import ast\n\ndef parse(s):\n    return ast.parse(s)\n"))
+    src = "import ast\n\ndef parse(s):\n    return ast.parse(s)\n"
+    r = run_hook(EXEC_GUARD, w("src/avalia/x.py", src))
     assert r["decision"] == "allow"
 
 
 # ---------- CC-H07: guard_model_access (RNF-06 + RNF-12) ----------
+
 
 def test_blocks_hardcoded_model_slug():
     r = run_hook(MODEL_GUARD, w("src/avalia/judge.py", 'M = "claude-opus-4-20250514"\n'))
@@ -95,14 +102,16 @@ def test_blocks_direct_client_instantiation():
 
 
 def test_allows_slug_in_docstring():
-    # NÃO pode bloquear texto que descreve o default "Opus→Sonnet" / slug em docstring
+    # NÃO pode bloquear slug em docstring (texto que descreve o default Opus→Sonnet)
     src = '"""Default: claude-opus then claude-sonnet."""\nx = 1\n'
     r = run_hook(MODEL_GUARD, w("src/avalia/judge.py", src))
     assert r["decision"] == "allow"
 
 
 def test_exempts_gateway_module():
-    r = run_hook(MODEL_GUARD, w("src/avalia/model_gateway/client.py", "c = ChatAnthropic(model=m)\n"))
+    r = run_hook(
+        MODEL_GUARD, w("src/avalia/model_gateway/client.py", "c = ChatAnthropic(model=m)\n")
+    )
     assert r["decision"] == "allow"
 
 

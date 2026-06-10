@@ -15,12 +15,12 @@ Falha do próprio hook nunca deve travar o trabalho → erros internos = exit 0 
 Escopo: só arquivos sob src/ do AVALIA. tests/fixtures/ são DADO ESTÁTICO do
 alvo (não código do AVALIA) e são ignorados de propósito.
 """
+
 from __future__ import annotations
 
 import json
 import re
 import sys
-from pathlib import Path
 
 # Padrões que significam "executar/importar código" — proibidos em src/ do AVALIA.
 BLOCK_PATTERNS = [
@@ -63,13 +63,17 @@ def in_scope(path: str) -> bool:
 
 
 def deny(reason: str) -> None:
-    print(json.dumps({
-        "hookSpecificOutput": {
-            "hookEventName": "PreToolUse",
-            "permissionDecision": "deny",
-            "permissionDecisionReason": reason,
-        }
-    }))
+    print(
+        json.dumps(
+            {
+                "hookSpecificOutput": {
+                    "hookEventName": "PreToolUse",
+                    "permissionDecision": "deny",
+                    "permissionDecisionReason": reason,
+                }
+            }
+        )
+    )
     sys.exit(0)
 
 

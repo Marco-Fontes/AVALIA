@@ -1,0 +1,49 @@
+# T-006 — Perfis de peso por tipo de sistema (DADOS, não código — RNF-06).
+# Editar prioridades = editar este arquivo. Cada perfil mapeia dimensão→peso e DEVE somar 1.
+# Perfil 'neutro' = pesos iguais (fallback quando a classificação é incerta — CA-04/CB-09).
+# Rastreabilidade: RF-16, RNF-06; CA-03, CA-04.
+
+rag:
+  alucinacao: 0.25      # CA-03: em RAG, alucinação pesa mais que no neutro (0.1428)
+  qualidade: 0.20
+  robustez: 0.15
+  assertividade: 0.12
+  trajetoria: 0.10
+  custo: 0.10
+  performance: 0.08
+
+agente_de_acao:
+  trajetoria: 0.22
+  robustez: 0.20
+  assertividade: 0.15
+  custo: 0.13
+  performance: 0.12
+  qualidade: 0.10
+  alucinacao: 0.08
+
+atendimento:
+  assertividade: 0.22
+  qualidade: 0.20
+  alucinacao: 0.18
+  robustez: 0.15
+  trajetoria: 0.10
+  custo: 0.08
+  performance: 0.07
+
+pipeline_dados:
+  performance: 0.22
+  custo: 0.20
+  robustez: 0.18
+  trajetoria: 0.15
+  qualidade: 0.12
+  assertividade: 0.08
+  alucinacao: 0.05
+
+neutro:
+  custo: 0.142857
+  performance: 0.142857
+  qualidade: 0.142857
+  assertividade: 0.142857
+  alucinacao: 0.142857
+  trajetoria: 0.142857
+  robustez: 0.142857
