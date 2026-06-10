@@ -5,6 +5,13 @@ Enforça RNF-05 / S-04 / T-1006 na ESCRITA (PreToolUse), antes de o conteúdo
 tocar o disco. Decisão desta sessão: PreToolUse + permissionDecision=deny
 (prevenção, não correção).
 
+Análise via `ast` (mesmo padrão do CC-H07 guard_model_access): só sinaliza os
+padrões proibidos quando ocorrem em CÓDIGO REAL (nós Call/Import/Name),
+ignorando docstrings e comentários. Mencionar "importlib"/"runpy"/"exec" em
+texto de documentação é legítimo e NÃO pode bloquear (senão vira loop de
+correção caro). Quando `ast.parse` falha (edição parcial/incompleta), cai no
+fallback regex sobre o conteúdo bruto.
+
 Protocolo de hook do Claude Code:
 - stdin: JSON com tool_name e tool_input (conteúdo proposto).
 - PreToolUse: para BLOQUEAR, imprime JSON com
@@ -18,11 +25,21 @@ alvo (não código do AVALIA) e são ignorados de propósito.
 
 from __future__ import annotations
 
+import ast
 import json
 import re
 import sys
 
-# Padrões que significam "executar/importar código" — proibidos em src/ do AVALIA.
+# Builtins de execução chamados como nome simples — proibidos em src/ do AVALIA.
+EXEC_BUILTINS = {"exec", "eval", "__import__"}
+# Módulos cuja simples referência significa "carregar/executar código" (proibido).
+BLOCK_MODULES = {"importlib", "runpy"}
+# Apenas AVISO (não bloqueia): subprocess é legítimo p/ ler metadados git do alvo
+# (RF-28); executar o alvo via subprocess não é. O humano/juiz decide o caso.
+WARN_MODULES = {"subprocess"}
+TARGET_FIXTURES = "tests.fixtures"
+
+# Fallback regex (só usado quando ast.parse falha — edição parcial).
 BLOCK_PATTERNS = [
     (re.compile(r"\bexec\s*\("), "exec()"),
     (re.compile(r"\beval\s*\("), "eval()"),
@@ -34,8 +51,6 @@ BLOCK_PATTERNS = [
     # importar fixtures de alvo como se fossem módulos do AVALIA
     (re.compile(r"\b(import|from)\s+tests\.fixtures"), "import de tests.fixtures"),
 ]
-# Apenas AVISO (não bloqueia): subprocess é legítimo p/ ler metadados git do alvo
-# (RF-28); executar o alvo via subprocess não é. O humano/juiz decide o caso.
 WARN_PATTERNS = [(re.compile(r"\bsubprocess\b"), "subprocess")]
 
 
@@ -62,14 +77,84 @@ def in_scope(path: str) -> bool:
     return p.endswith(".py")
 
 
-def deny(reason: str) -> None:
+def _is_exec_mode(call: ast.Call) -> bool:
+    """compile(..., 'exec') — bytecode executável, posicional ou via mode=."""
+    for arg in call.args:
+        if isinstance(arg, ast.Constant) and arg.value == "exec":
+            return True
+    for kw in call.keywords:
+        if kw.arg == "mode" and isinstance(kw.value, ast.Constant) and kw.value.value == "exec":
+            return True
+    return False
+
+
+def scan_ast(content: str) -> tuple[list[str], list[str]] | None:
+    """Analisa via AST. Retorna (blocks, warns) ou None se o conteúdo não parseia
+    (edição parcial → caller usa fallback regex)."""
+    try:
+        tree = ast.parse(content)
+    except SyntaxError:
+        return None
+    blocks: list[str] = []
+    warns: list[str] = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                root = alias.name.split(".")[0]
+                if root in BLOCK_MODULES:
+                    blocks.append(root)
+                if root in WARN_MODULES:
+                    warns.append(root)
+                if alias.name == TARGET_FIXTURES or alias.name.startswith(TARGET_FIXTURES + "."):
+                    blocks.append("import de tests.fixtures")
+        elif isinstance(node, ast.ImportFrom):
+            mod = node.module or ""
+            root = mod.split(".")[0]
+            if root in BLOCK_MODULES:
+                blocks.append(root)
+            if root in WARN_MODULES:
+                warns.append(root)
+            if mod == TARGET_FIXTURES or mod.startswith(TARGET_FIXTURES + "."):
+                blocks.append("import de tests.fixtures")
+        elif isinstance(node, ast.Name):
+            # referência ao módulo em código real (ex.: importlib.import_module()).
+            if node.id in BLOCK_MODULES:
+                blocks.append(node.id)
+            if node.id in WARN_MODULES:
+                warns.append(node.id)
+        elif isinstance(node, ast.Call):
+            fn = node.func
+            if isinstance(fn, ast.Name):
+                if fn.id in EXEC_BUILTINS:
+                    blocks.append(f"{fn.id}()")
+                elif fn.id == "compile" and _is_exec_mode(node):
+                    blocks.append("compile(..., 'exec')")
+            elif isinstance(fn, ast.Attribute):
+                if fn.attr == "system" and isinstance(fn.value, ast.Name) and fn.value.id == "os":
+                    blocks.append("os.system()")
+    return blocks, warns
+
+
+def scan_regex(content: str) -> tuple[list[str], list[str]]:
+    """Fallback: regex sobre o conteúdo bruto (quando o AST não parseia)."""
+    blocks = [label for rx, label in BLOCK_PATTERNS if rx.search(content)]
+    warns = [label for rx, label in WARN_PATTERNS if rx.search(content)]
+    return blocks, warns
+
+
+def deny(blocks: list[str]) -> None:
+    label = ", ".join(dict.fromkeys(blocks))
     print(
         json.dumps(
             {
                 "hookSpecificOutput": {
                     "hookEventName": "PreToolUse",
                     "permissionDecision": "deny",
-                    "permissionDecisionReason": reason,
+                    "permissionDecisionReason": (
+                        f"RNF-05/S-04: o AVALIA NUNCA executa nem importa o código do alvo. "
+                        f"Padrão proibido em src/: {label}. "
+                        f"A análise é estática (ast/tree-sitter). Ver T-1006 / tests/guards/."
+                    ),
                 }
             }
         )
@@ -87,20 +172,17 @@ def main() -> None:
     if not path or not in_scope(path):
         sys.exit(0)
 
-    for rx, label in BLOCK_PATTERNS:
-        if rx.search(content):
-            deny(
-                f"RNF-05/S-04: o AVALIA NUNCA executa nem importa o código do alvo. "
-                f"Padrão proibido em src/: {label}. "
-                f"A análise é estática (ast/tree-sitter). Ver T-1006 / tests/guards/."
-            )
+    result = scan_ast(content)
+    blocks, warns = result if result is not None else scan_regex(content)
 
-    warns = [label for rx, label in WARN_PATTERNS if rx.search(content)]
+    if blocks:
+        deny(blocks)
+
     if warns:
         # Aviso não bloqueia: emitir no stderr e permitir.
         sys.stderr.write(
             "AVISO RNF-05: uso de "
-            + ", ".join(warns)
+            + ", ".join(dict.fromkeys(warns))
             + " — ler metadados git do alvo (RF-28) é OK; executar o alvo não é.\n"
         )
     sys.exit(0)

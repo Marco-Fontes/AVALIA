@@ -76,3 +76,12 @@ class CheckNature(StrEnum):
     DETERMINISTICO = "deterministico"
     LLM_JUDGE = "llm_judge"
     HIBRIDO = "hibrido"
+
+
+class RunStatus(StrEnum):
+    """Estado da execução do grafo (plan §3.3)."""
+
+    OK = "ok"
+    PARTIAL = "partial"
+    ERROR = "error"
+    AWAITING_HUMAN = "awaiting_human"

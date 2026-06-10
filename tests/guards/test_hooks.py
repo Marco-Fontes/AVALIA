@@ -80,6 +80,56 @@ def test_subprocess_warns_not_blocks():
     assert "RNF-05" in r["stderr"]  # aviso emitido, mas não bloqueia
 
 
+def test_allows_forbidden_literals_in_docstring():
+    # AST-aware: mencionar importlib/runpy/exec/eval em docstring NÃO é execução.
+    # Regressão: regex bruta bloqueava isso e travava python_extractor.py.
+    src = (
+        '"""Extrator estático.\n\n'
+        "É PROIBIDO usar importlib/runpy/exec/eval para carregar o alvo.\n"
+        '"""\nimport ast\n\n'
+        "# este comentário cita importlib e runpy de propósito\n"
+        "def parse(s):\n    return ast.parse(s)\n"
+    )
+    r = run_hook(EXEC_GUARD, w("src/avalia/extract/python_extractor.py", src))
+    assert r["decision"] == "allow"
+
+
+def test_allows_forbidden_literals_in_string_constant():
+    # Literal de string que cita os termos (ex.: mensagem de erro) não é código.
+    src = 'MSG = "não use exec(), eval() nem os.system() no alvo"\n'
+    r = run_hook(EXEC_GUARD, w("src/avalia/x.py", src))
+    assert r["decision"] == "allow"
+
+
+def test_blocks_real_importlib_import_after_docstring_mention():
+    # Docstring cita importlib (OK), mas um `import importlib` real continua bloqueado.
+    src = '"""Não usar importlib aqui."""\nimport importlib\nmod = importlib.import_module(\'x\')\n'
+    r = run_hook(EXEC_GUARD, w("src/avalia/x.py", src))
+    assert r["decision"] == "deny"
+    assert "importlib" in r["raw"]["hookSpecificOutput"]["permissionDecisionReason"]
+
+
+def test_blocks_runpy_usage():
+    r = run_hook(EXEC_GUARD, w("src/avalia/x.py", "import runpy\nrunpy.run_path('x')\n"))
+    assert r["decision"] == "deny"
+
+
+def test_blocks_os_system():
+    r = run_hook(EXEC_GUARD, w("src/avalia/x.py", "import os\nos.system('ls')\n"))
+    assert r["decision"] == "deny"
+
+
+def test_blocks_compile_exec_mode():
+    r = run_hook(EXEC_GUARD, w("src/avalia/x.py", "code = compile(s, 'f', 'exec')\n"))
+    assert r["decision"] == "deny"
+
+
+def test_regex_fallback_on_partial_edit():
+    # Conteúdo que NÃO parseia (edição parcial) → fallback regex ainda bloqueia.
+    r = run_hook(EXEC_GUARD, w("src/avalia/x.py", "def f(:\n    exec(code)\n"))
+    assert r["decision"] == "deny"
+
+
 def test_clean_src_passes():
     src = "import ast\n\ndef parse(s):\n    return ast.parse(s)\n"
     r = run_hook(EXEC_GUARD, w("src/avalia/x.py", src))
