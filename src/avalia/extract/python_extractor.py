@@ -39,6 +39,9 @@ _CACHE_DECORATORS = ("lru_cache", "cache", "cached")
 _EDGE_METHODS = ("add_edge", "add_conditional_edges")
 _AGENT_NAME_HINTS = ("agent", "assistant", "worker", "expert", "planner", "researcher", "node")
 _UNBOUNDED_ITERS = ("count", "cycle", "repeat")
+_TOKEN_LIMIT_KW = ("max_tokens", "max_output_tokens", "max_completion_tokens")
+_FALLBACK_KW = ("fallback", "fallbacks", "fallback_model")
+_VALIDATION_CALLS = ("isinstance", "validate", "model_validate", "parse_obj", "model_validate_json")
 
 
 def _deco_name(node: ast.expr) -> str:
@@ -222,6 +225,10 @@ class _FileVisitor(ast.NodeVisitor):
             self.edges.append(
                 Edge(source=src, target=tgt, evidence=self._ev(node, self._sym(), "edge"))
             )
+        if fname in _VALIDATION_CALLS:
+            self._add_eh(node, "input_validation")
+        elif fname == "with_fallbacks":
+            self._add_eh(node, "fallback_modelo")
         for kw in node.keywords:
             if kw.arg in _PROMPT_KW and isinstance(kw.value, ast.Constant | ast.JoinedStr):
                 self.prompts.append(
@@ -249,14 +256,21 @@ class _FileVisitor(ast.NodeVisitor):
                     )
                 )
             elif kw.arg in ("stream", "streaming"):
-                self.error_handling.append(
-                    ErrorHandling(
-                        symbol=self._sym(),
-                        kind="streaming",
-                        evidence=self._ev(node, self._sym(), "error_handling"),
-                    )
-                )
+                self._add_eh(node, "streaming")
+            elif kw.arg in _TOKEN_LIMIT_KW:
+                self._add_eh(node, "token_limit")
+            elif kw.arg in _FALLBACK_KW:
+                self._add_eh(node, "fallback_modelo")
         self.generic_visit(node)
+
+    def _add_eh(self, node: ast.AST, kind: str) -> None:
+        self.error_handling.append(
+            ErrorHandling(
+                symbol=self._sym(),
+                kind=kind,
+                evidence=self._ev(node, self._sym(), "error_handling"),
+            )
+        )
 
     def visit_Try(self, node: ast.Try) -> None:
         self.error_handling.append(

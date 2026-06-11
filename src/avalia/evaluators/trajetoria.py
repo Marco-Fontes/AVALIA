@@ -13,8 +13,13 @@ Rastreabilidade: RF-DIM-T1/T2/T3, RF-09..11, RF-14, RF-27; CA-09.
 
 from __future__ import annotations
 
-from avalia.domain.contracts import DimensionResult, Finding, Recommendation
-from avalia.domain.enums import Confidence, Dimension, Urgency
+from avalia.domain.contracts import (
+    DimensionResult,
+    Finding,
+    Recommendation,
+    TargetClassification,
+)
+from avalia.domain.enums import Confidence, Dimension, Topology, Urgency
 from avalia.domain.taxonomy import FindingType
 from avalia.domain.tsm import TargetStaticModel
 from avalia.evaluators.checks import deterministic_outcome
@@ -25,9 +30,35 @@ _NO_CAP_PENALTY = 25
 _BASE_SCORE = 85
 
 
+def _is_inapplicable(tsm: TargetStaticModel, classification: TargetClassification | None) -> bool:
+    """Trajetória é inaplicável em agente único sem grafo/loops/ferramentas a avaliar (CA-08)."""
+    return (
+        classification is not None
+        and classification.topology is Topology.AGENTE_UNICO_BORDERLINE
+        and not tsm.loops
+        and not tsm.edges
+        and not tsm.tools
+    )
+
+
 def evaluate_trajetoria(
-    tsm: TargetStaticModel, contribution: JudgeContribution | None = None
+    tsm: TargetStaticModel,
+    classification: TargetClassification | None = None,
+    *,
+    contribution: JudgeContribution | None = None,
 ) -> DimensionResult:
+    if _is_inapplicable(tsm, classification):
+        return DimensionResult(
+            dimension=Dimension.TRAJETORIA,
+            applicable=False,
+            score=None,
+            confidence=Confidence.MEDIO,
+            reasoning=(
+                "Trajetória não aplicável: agente único sem grafo, loops ou ferramentas a "
+                "avaliar; dimensão excluída do agregado e pesos renormalizados (CA-08)."
+            ),
+        )
+
     uncapped = [loop for loop in tsm.loops if not loop.has_cap]
 
     findings: list[Finding] = []
