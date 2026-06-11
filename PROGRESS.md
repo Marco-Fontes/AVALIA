@@ -11,9 +11,12 @@ apenas registra implementação, cobertura de requisitos e artefatos. Decisões 
 |---|---|
 | **Fase A** — config Claude Code (guardrails) | ✅ concluído |
 | **M0** — contratos + config (T-001..T-007) | ✅ concluído |
-| **M1** — walking skeleton (laudo ponta-a-ponta) | ⏳ próximo |
+| **M1** — walking skeleton (laudo ponta-a-ponta) | ✅ concluído |
+| **M2** — sete dimensões + agregação completa | ⏳ próximo |
 
-Validação atual: `ruff check .` limpo · `mypy src` limpo · **65 testes verdes** (`py -m pytest -q`).
+Validação atual: `ruff check .` limpo · `mypy src` limpo (37 arquivos) · **96 testes verdes** (`py -m pytest -q`).
+Smoke ponta-a-ponta: o grafo gera um `EvaluationReport` real (veredito condicional + condição de
+aprovação rastreável) para a fixture de loop sem teto, renderizável em Markdown e JSON.
 
 ---
 
@@ -54,6 +57,40 @@ código/teste; (d) `ruff` + guarda RNF-05 verdes.
 
 **Marco M0 (tasks §13):** ✅ — inclui o slot opaco `dynamic_metrics` (ajuste #4) e o
 `ModelGateway` default Opus→Sonnet configurável (ajuste v1.3 / RNF-12).
+
+---
+
+## 2b. M1 — Walking skeleton (T-101..103, 201..204, 301/302, 308, 501, 701/703, 801, 602)
+
+Menor fatia ponta-a-ponta que gera um **laudo real** de um alvo Python simples. Grafo reduzido
+(LangGraph): N0→N1→N2→N3→[Trajetória]→N5→N7. Extrator `ast` (escolha desta iteração); juiz com
+anti-injeção e fallback intrínsecos; veredito da Trajetória ancorado em fato (loop sem teto).
+
+| Tarefa | Entrega | Arquivos | Requisitos | Testes |
+|---|---|---|---|---|
+| **T-101** | interface `LanguageExtractor` + registry | `extract/base.py`, `extract/registry.py` | plan §3.1; #1 | `tests/extract/` |
+| **T-102** | extrator Python `ast` (leitura estática pura) | `extract/python_extractor.py` | RF-14, RNF-07, **RNF-05** | `tests/extract/` (6) |
+| **T-103** | `TargetStaticModel` + builder (fonte única) | `domain/tsm.py`, `extract/tsm_builder.py` | RF-08, RF-12, RF-14 | `tests/extract/` |
+| **T-201** | N0 ingest/validate (erro sem laudo) | `ingest.py`, `domain/submission.py` | RF-01/02, CB-07; CA-01 | `tests/nodes/`, `tests/graph/` |
+| **T-203** | N2 classify (topologia ≥2 sinais, confiança) | `classify.py` | RF-04..08; CA-02 | `tests/nodes/`, `tests/graph/` |
+| **T-204** | N3 select_weights + renormalização | `weights_select.py` | RF-16/17/21; CA-04/08 | `tests/nodes/` (7) |
+| **T-301** | framework de check determinístico + hash | `evaluators/checks.py` | RNF-01, RF-26; CA-14 | `tests/evaluators/` |
+| **T-302** | framework de juiz (anti-injeção + RNF-12) | `judge/framework.py`, `judge/rubrics.py`, `judge/base.py` | RF-10/20, RNF-01/12; R8 | `tests/judge/` (6) |
+| **T-308** | avaliador Trajetória (fato-âncora) | `evaluators/trajetoria.py` | RF-DIM-T*; CA-09 | `tests/evaluators/` (4) |
+| **T-501** | agregação + condições de aprovação (CA-09) | `aggregate.py` | RF-15/18/19/22; CA-09 | `tests/report/` (3) |
+| **T-701/703** | build_report + render Markdown/JSON | `report/build.py`, `report/render.py` | RF-25/27, RNF-08/10 | `tests/report/` |
+| **T-801/602** | grafo LangGraph + checkpointer (MemorySaver) | `graph/state.py`, `graph/nodes.py`, `graph/build_graph.py` | plan §1.1; RF-02; CA-01 | `tests/graph/` (5) |
+| **T-310** | teste adversarial de anti-injeção | — | R8; RF-DIM-R3 | `tests/judge/` |
+| **T-1008** | teste de resiliência (fallback de modelo) | — | RNF-12; CB-10 | `tests/judge/` |
+
+**Validações de aceite cobertas no M1:** CA-01 (erro sem laudo), CA-02 (borderline), CA-05
+(reasoning sempre presente), CA-09 (condição rastreável), RNF-05 (guarda T-1006 ativa sobre
+`src/`), R8 (injeção não manipula veredito), RNF-12 (retry→fallback declarado→parcial).
+
+**Fora do M1 (marcos seguintes):** fan-out das 7 dimensões e demais avaliadores (M2);
+divergência/HITL (M3); histórico (M4); priorização/budget/streaming/ganchos Fase 2/tree-sitter
+(M5); observabilidade (M6). T-308 hoje é determinístico-âncora; o juiz é injetável (demonstrado
+no e2e com gateway mockado) e será cabeado em todos os avaliadores no fan-out (M2).
 
 ---
 
@@ -131,11 +168,19 @@ futura precise contrariar uma decisão, o protocolo é **PARAR e confirmar** (n�
 
 ---
 
-## 7. Próximo passo — M1 (walking skeleton)
+## 7. Próximo passo — M2 (sete dimensões + agregação completa)
 
-Laudo real ponta-a-ponta de um alvo Python simples (tasks §13): T-101/102/103 (TSM + extrator
-Python por leitura estática), T-201/202/203/204 (nós até classificação), T-301/302 (frameworks
-de check determinístico e de juiz, com anti-injeção e política de fallback intrínsecas),
-**um** avaliador (T-308 Trajetória), T-501, T-701/703, T-801, T-602; e os testes-guarda
-T-1006 (já ativo), T-310 (anti-injeção) e T-1008 (fallback de modelo). Valida cedo CA-01,
-CA-02, CA-05, CA-09, RNF-05, R8 e RNF-12.
+Fan-out das 7 dimensões a partir de N3 (T-303..T-309) com fan-in ordenado (T-311), cabeando o
+juiz (T-302) em todos os avaliadores; exclusão por piso de confiança (T-502), condições de
+aprovação completas/priorizadas (T-503), recomendações consolidadas (T-702).
+
+### Decisões/atritos registrados no M1
+- **Extrator `ast`-only** (escolha do usuário); tree-sitter fica para M5 via a interface plugável.
+- **T-308 determinístico-âncora**; juiz injetável (demonstrado no e2e com gateway mockado),
+  cabeamento pleno do juiz nos avaliadores ocorre no fan-out (M2).
+- **`StateGraph` tipado como `Any`** em `build_graph.py`: fronteira pragmática com o typing
+  estrito do LangGraph (nós `Callable[[AvaliaState], dict]` não encaixam no `_Node[Never]`).
+- **Atrito de guardas (a melhorar):** `guard_no_target_exec` e `block_sql_destructive` são
+  baseados em regex e geram falso positivo quando docstrings/PR-body mencionam os literais
+  proibidos (`importlib`, `TRUNCATE`). Tornar `guard_no_target_exec` AST-aware (como o de
+  modelo, que ignora strings/comentários) é um aperfeiçoamento candidato.
