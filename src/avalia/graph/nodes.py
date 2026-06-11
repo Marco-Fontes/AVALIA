@@ -10,9 +10,18 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import Any
 
+from langgraph.types import interrupt
+
 from avalia.aggregate import aggregate
 from avalia.classify import classify_target
 from avalia.config.weight_profiles import load_weight_profiles
+from avalia.divergence import detect_candidates, reconcile_candidate
+from avalia.domain.contracts import (
+    DivergenceCandidate,
+    DivergenceRecord,
+    HumanDecision,
+    ResolvedBy,
+)
 from avalia.domain.enums import Dimension, RunStatus
 from avalia.evaluators.registry import EVALUATORS
 from avalia.extract.tsm_builder import build_tsm
@@ -63,6 +72,61 @@ def make_dimension_node(
     return node
 
 
+def make_detect_divergence_node(
+    gateway: GatewayLike | None = None,
+) -> Callable[[AvaliaState], dict[str, Any]]:
+    """N4 fan-in: detecta divergências e tenta reconciliar automaticamente (T-401/T-402)."""
+
+    def node(state: AvaliaState) -> dict[str, Any]:
+        config = state["submission"].config
+        candidates = detect_candidates(state["dimension_results"], config)
+        resolved: list[DivergenceRecord] = []
+        pending: list[DivergenceCandidate] = []
+        for candidate in candidates:
+            record = (
+                reconcile_candidate(candidate, gateway=gateway, tsm=state["tsm"])
+                if gateway is not None
+                else None
+            )
+            if record is not None:
+                resolved.append(record)
+            else:
+                pending.append(candidate)
+        return {"divergences": resolved, "pending_divergences": pending}
+
+    return node
+
+
+def n4h_human_gate(state: AvaliaState) -> dict[str, Any]:
+    """N4h: pausa (interrupt) em divergência persistente; retoma com a decisão humana (T-404)."""
+    pending = list(state.get("pending_divergences", []))
+    if not pending:
+        return {}
+    raw = interrupt({"pending": [c.model_dump(mode="json") for c in pending]})
+    decisions = [HumanDecision.model_validate(d) for d in raw]
+    by_dim = {d.dimension: d for d in decisions}
+    records = [
+        DivergenceRecord(
+            dimension=c.dimension,
+            conflicting_positions=c.conflicting_positions,
+            threshold_hit=c.threshold_hit,
+            resolved_by=ResolvedBy.HUMANO,
+            resolution_note=(by_dim[c.dimension].note if c.dimension in by_dim else "Decidido."),
+        )
+        for c in pending
+    ]
+    return {
+        "divergences": list(state.get("divergences", [])) + records,
+        "human_decisions": decisions,
+        "pending_divergences": [],
+    }
+
+
+def route_after_divergence(state: AvaliaState) -> str:
+    """N4 → human_gate (divergência persistente) vs. seguir para a agregação."""
+    return "human" if state.get("pending_divergences") else "aggregate"
+
+
 def n5_aggregate(state: AvaliaState) -> dict[str, Any]:
     agg = aggregate(
         state["dimension_results"], state["effective_weights"], state["submission"].config
@@ -79,6 +143,7 @@ def n7_build_report(state: AvaliaState) -> dict[str, Any]:
         inventory=state["inventory"],
         tsm=state["tsm"],
         config=state["submission"].config,
+        divergences=list(state.get("divergences", [])),
     )
     return {"report": report, "status": RunStatus.OK}
 

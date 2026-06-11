@@ -15,7 +15,10 @@ from avalia.domain.contracts import (
     AggregateScore,
     ComponentInventory,
     DimensionResult,
+    DivergenceCandidate,
+    DivergenceRecord,
     EvaluationReport,
+    HumanDecision,
     TargetClassification,
 )
 from avalia.domain.enums import Dimension, RunStatus
@@ -34,6 +37,9 @@ class AvaliaState(TypedDict, total=False):
     applicable_dims: list[Dimension]
     effective_weights: WeightProfile
     dimension_results: Annotated[list[DimensionResult], operator.add]
+    pending_divergences: list[DivergenceCandidate]
+    divergences: list[DivergenceRecord]
+    human_decisions: list[HumanDecision]
     aggregate: AggregateScore
     report: EvaluationReport
     status: RunStatus

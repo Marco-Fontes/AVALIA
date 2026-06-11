@@ -14,10 +14,12 @@ from avalia.domain.contracts import (
     AggregateScore,
     ComponentInventory,
     DimensionResult,
+    DivergenceRecord,
     EvaluationReport,
     Recommendation,
     ReportHeader,
     ReportMetadata,
+    ResolvedBy,
     TargetClassification,
 )
 from avalia.domain.enums import Confidence, Dimension, Urgency
@@ -26,6 +28,35 @@ from avalia.domain.weights import WeightProfile
 
 _URGENCY_ORDER = {Urgency.CRITICO: 0, Urgency.IMPORTANTE: 1, Urgency.SUGESTAO: 2}
 _DIM_ORDER = {d: i for i, d in enumerate(Dimension)}
+_CONF_ORDER = [Confidence.BAIXO, Confidence.MEDIO, Confidence.ALTO]
+
+
+def _reduce_confidence(conf: Confidence) -> Confidence:
+    return _CONF_ORDER[max(0, _CONF_ORDER.index(conf) - 1)]
+
+
+def _apply_divergence_confidence(
+    results: list[DimensionResult], divergences: list[DivergenceRecord]
+) -> list[DimensionResult]:
+    """Divergência escalada ao humano reduz a confiança reportada da dimensão (decisão M3)."""
+    escalated = {d.dimension for d in divergences if d.resolved_by is ResolvedBy.HUMANO}
+    if not escalated:
+        return results
+    out: list[DimensionResult] = []
+    for dr in results:
+        if dr.dimension in escalated and dr.confidence is not Confidence.BAIXO:
+            note = "Confiança reduzida: divergência de julgamento resolvida por decisão humana."
+            out.append(
+                dr.model_copy(
+                    update={
+                        "confidence": _reduce_confidence(dr.confidence),
+                        "confidence_reason": note,
+                    }
+                )
+            )
+        else:
+            out.append(dr)
+    return out
 
 
 def _overall_confidence(
@@ -54,7 +85,12 @@ def build_report(
     inventory: ComponentInventory,
     tsm: TargetStaticModel,
     config: EvaluatorConfig,
+    divergences: list[DivergenceRecord] | None = None,
 ) -> EvaluationReport:
+    divergences = divergences or []
+    # Divergência escalada ao humano reduz a confiança reportada da dimensão (M3, regra 6).
+    results = _apply_divergence_confidence(results, divergences)
+
     header = ReportHeader(
         classification=classification,
         effective_weights=weights,
@@ -73,6 +109,13 @@ def build_report(
         known_limitations.append(
             "Há arquivos ilegíveis; dimensões afetadas têm confiança reduzida."
         )
+    escalated = sorted(
+        {d.dimension.value for d in divergences if d.resolved_by is ResolvedBy.HUMANO}
+    )
+    if escalated:
+        known_limitations.append(
+            f"Divergências de julgamento resolvidas por humano em: {', '.join(escalated)}."
+        )
 
     metadata = ReportMetadata(
         effective_config=config,
@@ -85,12 +128,13 @@ def build_report(
 
     # Ordenação estável por Dimension → laudo independe da ordem de chegada do fan-out (T-311).
     ordered = sorted(results, key=lambda dr: _DIM_ORDER[dr.dimension])
+    sorted_divergences = sorted(divergences, key=lambda d: _DIM_ORDER[d.dimension])
     return EvaluationReport(
         header=header,
         dimensions=ordered,
         consolidated_recommendations=_consolidate_recommendations(results),
         approval_conditions=aggregate_score.approval_conditions,
         comparison=None,
-        divergences=[],
+        divergences=sorted_divergences,
         metadata=metadata,
     )

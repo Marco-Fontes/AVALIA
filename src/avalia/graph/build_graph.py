@@ -21,13 +21,16 @@ from langgraph.graph import END, StateGraph
 
 from avalia.domain.enums import Dimension
 from avalia.graph.nodes import (
+    make_detect_divergence_node,
     make_dimension_node,
     n0_ingest,
     n1_index,
     n2_classify,
     n3_select_weights,
+    n4h_human_gate,
     n5_aggregate,
     n7_build_report,
+    route_after_divergence,
     route_after_ingest,
 )
 from avalia.graph.state import AvaliaState
@@ -46,6 +49,8 @@ def build_avalia_graph(
     g.add_node("index", n1_index)
     g.add_node("classify", n2_classify)
     g.add_node("select_weights", n3_select_weights)
+    g.add_node("detect_divergence", make_detect_divergence_node(gateway))
+    g.add_node("human_gate", n4h_human_gate)
     g.add_node("aggregate", n5_aggregate)
     g.add_node("build_report", n7_build_report)
 
@@ -59,7 +64,14 @@ def build_avalia_graph(
     g.add_edge("classify", "select_weights")
     for name in dim_nodes:  # fan-out
         g.add_edge("select_weights", name)
-        g.add_edge(name, "aggregate")  # fan-in (aggregate espera os 7)
+        g.add_edge(name, "detect_divergence")  # fan-in (N4 espera os 7)
+    # N4 → human_gate (divergência persistente) vs. aggregate
+    g.add_conditional_edges(
+        "detect_divergence",
+        route_after_divergence,
+        {"human": "human_gate", "aggregate": "aggregate"},
+    )
+    g.add_edge("human_gate", "aggregate")
     g.add_edge("aggregate", "build_report")
     g.add_edge("build_report", END)
 
