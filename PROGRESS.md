@@ -14,12 +14,14 @@ apenas registra implementação, cobertura de requisitos e artefatos. Decisões 
 | **M1** — walking skeleton (laudo ponta-a-ponta) | ✅ concluído |
 | **M2** — sete dimensões + agregação completa | ✅ concluído |
 | **M3** — divergência + HITL (E4) | ✅ concluído |
-| **M4** — histórico + comparação | ⏳ próximo |
+| **M4** — histórico + comparação (E6) | ✅ concluído |
+| **M5** — robustez de escala + streaming + ganchos Fase 2 | ⏳ próximo |
 
-Validação atual: `ruff check .` limpo · `mypy src` limpo (50 arquivos) · **133 testes verdes** (`py -m pytest -q`).
-Smoke M3: divergência por faixas distintas → reconciliação automática (auto) ou escalonamento ao
-humano via `human_gate` (interrupt/resume + `ApprovalProvider`), registrada no laudo; a dimensão
-escalada tem a confiança reduzida. O run determinístico (sem juiz) passa direto, sem HITL.
+Validação atual: `ruff check .` limpo · `mypy src` limpo (54 arquivos) · **140 testes verdes**
+(`py -m pytest -q`; +4 Postgres gated por `AVALIA_PG_DSN`).
+Smoke M4: v1→v2 do mesmo alvo → comparação com deltas por dimensão (melhorias em custo/performance/
+robustez), achados classificados em resolvido/persistente/novo por identidade estável, vínculo ao
+laudo anterior. 1ª versão → sem comparação + nota (CB-06).
 
 ---
 
@@ -160,6 +162,32 @@ para registrar `avalia.domain.*` no serde — vale também para o `PostgresSaver
 
 ---
 
+## 2e. M4 — Histórico + comparação (E6: T-601, T-603, T-604, T-605)
+
+Persiste cada laudo, recupera a versão anterior do mesmo alvo e calcula a comparação histórica.
+
+| Tarefa | Entrega | Arquivos | Requisitos | Testes |
+|---|---|---|---|---|
+| **T-601** | schema Postgres + CRUD (`PostgresReportRepository`) | `persistence/postgres.py` | RF-28, D-02; #3 | `tests/persistence/test_repository.py` (gated) |
+| **T-603** | repositório CRUD + Protocol + InMemory | `persistence/repository.py` | RF-28; CB-06 | idem (InMemory sempre) |
+| **T-604** | `findings_index` por identidade estável | `persistence/repository.py` | RF-29, RNF-01 | idem |
+| **T-605** | N6 `compare_history` (deltas, diff de achados) | `compare.py`, `graph/nodes.py` | RF-28/29; CA-15 | `tests/persistence/test_compare.py`, `tests/graph/test_m4_history.py` |
+
+Estado: + `comparison`. Grafo: `aggregate → compare_history → build_report`. N7 fatorizado em
+`make_build_report_node(repository)` que **persiste** o registro. `build_report`/`render` ganham a
+seção de comparação. Reusa `finding_identity`/`Finding.identity` (M0) para o diff estável (RF-29).
+
+**Aceite coberto:** CA-15 (regressões/melhorias/achados resolvidos entre v1 e v2), CB-06 (1ª
+versão → sem comparação + nota no laudo).
+
+**Decisões do M4:** persistência atrás do Protocol `ReportRepository` (espelha o split dev/prod do
+checkpointer). `InMemoryReportRepository` dirige o CI; `PostgresReportRepository` (schema idempotente
+`IF NOT EXISTS`, psycopg import preguiçoso) é exercitado por um **teste-contrato parametrizado** que
+roda os dois — Postgres só com `AVALIA_PG_DSN` (CI sem banco → skip). Comparação determinística (não
+exige juiz): a diferença de achados usa identidade estável; o run sem repositório passa por N6 no-op.
+
+---
+
 ## 3. Cobertura requisito → artefato no M0 (espelha tasks §14, sem editar o original)
 
 | Requisito | Artefato que satisfaz (M0) |
@@ -234,15 +262,15 @@ futura precise contrariar uma decisão, o protocolo é **PARAR e confirmar** (n�
 
 ---
 
-## 7. Próximo passo — M4 (histórico + comparação)
+## 7. Próximo passo — M5 (robustez de escala + streaming + ganchos Fase 2)
 
-Épico E6: schema Postgres do repositório de laudos (T-601), repositório CRUD mínimo (T-603),
-`findings_index` com identidade estável (T-604, reusa `taxonomy.finding_identity` do M0), e N6
-`compare_history` (T-605) com deltas/regressões/melhorias e classificação de achados em
-resolvido/persistente/novo. Valida CA-15 (regressões/melhorias entre versões) e CB-06 (sem
-histórico → laudo normal + nota, sem comparação).
+Épico E5/E8 parciais: priorização por sinal + amostragem + cobertura (T-105), curto-circuito de
+budget + laudo parcial (T-802, reusa o caminho de parcial), streaming `astream_events` (T-803),
+ganchos vazios de Fase 2 (T-804: `TargetRunner`, `execution_gate`, refino de `dynamic_metrics`),
+legibilidade (T-104) e contradições config↔código (T-106). Valida CA-13 (laudo parcial honesto)
+e CB-02/CB-08. **tree-sitter** (segundo extrator) também é candidato a entrar aqui.
 
-### Decisões/atritos acumulados (M1–M3)
+### Decisões/atritos acumulados (M1–M4)
 - **Extrator `ast`-only** (escolha do usuário); tree-sitter fica para M5 via a interface plugável.
 - **Juiz injetável por gateway**; default determinístico, gateway mockado nos testes.
 - **Resolução de divergência registra + ajusta confiança**, sem sobrescrever o score (regra 6).

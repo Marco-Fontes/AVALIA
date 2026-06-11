@@ -21,6 +21,8 @@ from langgraph.graph import END, StateGraph
 
 from avalia.domain.enums import Dimension
 from avalia.graph.nodes import (
+    make_build_report_node,
+    make_compare_history_node,
     make_detect_divergence_node,
     make_dimension_node,
     n0_ingest,
@@ -29,16 +31,19 @@ from avalia.graph.nodes import (
     n3_select_weights,
     n4h_human_gate,
     n5_aggregate,
-    n7_build_report,
     route_after_divergence,
     route_after_ingest,
 )
 from avalia.graph.state import AvaliaState
 from avalia.judge.framework import GatewayLike
+from avalia.persistence.repository import ReportRepository
 
 
 def build_avalia_graph(
-    *, gateway: GatewayLike | None = None, checkpointer: Any | None = None
+    *,
+    gateway: GatewayLike | None = None,
+    repository: ReportRepository | None = None,
+    checkpointer: Any | None = None,
 ) -> Any:
     """Constrói e compila o grafo de avaliação (7 dimensões em fan-out)."""
     # StateGraph é genérico e invariante no schema de estado; sob mypy strict o tipo do nó
@@ -52,7 +57,8 @@ def build_avalia_graph(
     g.add_node("detect_divergence", make_detect_divergence_node(gateway))
     g.add_node("human_gate", n4h_human_gate)
     g.add_node("aggregate", n5_aggregate)
-    g.add_node("build_report", n7_build_report)
+    g.add_node("compare_history", make_compare_history_node(repository))
+    g.add_node("build_report", make_build_report_node(repository))
 
     dim_nodes = [f"dim_{d.value}" for d in Dimension]
     for d, name in zip(Dimension, dim_nodes, strict=True):
@@ -72,7 +78,8 @@ def build_avalia_graph(
         {"human": "human_gate", "aggregate": "aggregate"},
     )
     g.add_edge("human_gate", "aggregate")
-    g.add_edge("aggregate", "build_report")
+    g.add_edge("aggregate", "compare_history")  # N6: comparação histórica (CB-06 se sem anterior)
+    g.add_edge("compare_history", "build_report")
     g.add_edge("build_report", END)
 
     return g.compile(checkpointer=checkpointer or MemorySaver())
