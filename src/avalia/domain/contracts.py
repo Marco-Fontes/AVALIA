@@ -218,6 +218,26 @@ class DimensionResult(BaseModel):
 # ----------------------------- divergência e agregação -----------------------------
 
 
+class DivergenceCandidate(BaseModel):
+    """Divergência detectada, ANTES de resolvida (sem `resolved_by`) — T-401."""
+
+    model_config = ConfigDict(frozen=True)
+
+    dimension: Dimension
+    conflicting_positions: list[JudgeOpinion] = Field(min_length=2)
+    threshold_hit: str = Field(min_length=1)  # band_mismatch | low_confidence
+
+
+class HumanDecision(BaseModel):
+    """Decisão humana sobre uma divergência escalada (RF-24)."""
+
+    model_config = ConfigDict(frozen=True)
+
+    dimension: Dimension
+    chosen_band: Band | None = None
+    note: str = Field(min_length=1)
+
+
 class DivergenceRecord(BaseModel):
     """Registro de divergência entre julgamentos da mesma dimensão (RF-20, 4.2.7)."""
 

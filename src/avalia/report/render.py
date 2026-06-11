@@ -61,6 +61,17 @@ def render_markdown(report: EvaluationReport) -> str:
             lines.append(f"- [{r.urgency.value}] {r.statement}")
         lines.append("")
 
+    if report.divergences:
+        lines.append("## Divergências de julgamento")
+        for d in report.divergences:
+            bands = ", ".join(o.band.value for o in d.conflicting_positions if o.band)
+            note = d.resolution_note or "—"
+            lines.append(
+                f"- **{d.dimension.value}** ({d.threshold_hit}; faixas: {bands}) — "
+                f"resolvida por {d.resolved_by.value}: {note}"
+            )
+        lines.append("")
+
     meta = report.metadata
     lines.append("## Metadados e limitações")
     lines.append(f"- Componentes presentes: {', '.join(meta.inventory.present) or '—'}")
