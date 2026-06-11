@@ -108,5 +108,6 @@ class TargetStaticModel(BaseModel):
     configs: list[ConfigItem] = Field(default_factory=list)
     error_handling: list[ErrorHandling] = Field(default_factory=list)
     shared_state: list[SharedStateRef] = Field(default_factory=list)
+    has_harness: bool = False  # existe harness de teste/avaliação? (Q1/CA-06)
     coverage: AnalysisCoverage = Field(default_factory=AnalysisCoverage)
     readability: ReadabilityReport = Field(default_factory=ReadabilityReport)

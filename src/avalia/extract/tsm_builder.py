@@ -16,6 +16,12 @@ from avalia.extract.base import ExtractionResult
 from avalia.extract.registry import get_extractor, language_for_path
 
 
+def _is_harness_path(path: str) -> bool:
+    p = path.replace("\\", "/").lower()
+    base = p.rsplit("/", 1)[-1]
+    return base.startswith("test_") or base.endswith("_test.py") or "/tests/" in p or "/test/" in p
+
+
 def build_tsm(files: dict[str, str]) -> TargetStaticModel:
     """Constrói o TSM a partir do mapa caminho→texto-fonte do alvo."""
     by_lang: dict[str, dict[str, str]] = {}
@@ -71,6 +77,7 @@ def build_tsm(files: dict[str, str]) -> TargetStaticModel:
         configs=merged.configs,
         error_handling=merged.error_handling,
         shared_state=merged.shared_state,
+        has_harness=any(_is_harness_path(p) for p in files),
         coverage=coverage,
         readability=readability,
     )

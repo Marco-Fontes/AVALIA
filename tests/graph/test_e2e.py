@@ -12,11 +12,10 @@ from pathlib import Path
 import pytest
 
 from avalia.config.evaluator_config import RetryPolicy
-from avalia.domain.enums import Band, Confidence, Dimension, RunStatus, Topology, Verdict
+from avalia.domain.enums import Band, Confidence, RunStatus, Topology, Verdict
 from avalia.domain.submission import Submission, TargetMetadata
 from avalia.graph.build_graph import build_avalia_graph
-from avalia.judge.framework import Judge, JudgeVerdict
-from avalia.judge.rubrics import get_rubric
+from avalia.judge.framework import JudgeVerdict
 
 pytestmark = pytest.mark.fast
 
@@ -29,8 +28,8 @@ def _load(name: str) -> dict[str, str]:
     return {f.name: f.read_text(encoding="utf-8") for f in d.glob("*.py")}
 
 
-def _run(sub: Submission, contributor=None) -> dict:
-    graph = build_avalia_graph(contributor=contributor)
+def _run(sub: Submission, gateway=None) -> dict:
+    graph = build_avalia_graph(gateway=gateway)
     return graph.invoke({"submission": sub}, config={"configurable": {"thread_id": "t"}})
 
 
@@ -94,23 +93,40 @@ class _FakeGateway:
         return RetryPolicy(max_attempts=2)
 
 
-def test_judge_opinions_flow_through_graph_with_mock_gateway():
-    judge = Judge(_FakeGateway(), "juiz_trajetoria")
-
-    def contribute(tsm):
-        content = {p.evidence.file_path: p.text for p in tsm.prompts} or {"_": "(sem prompts)"}
-        evidence = [p.evidence for p in tsm.prompts][:1]
-        return judge.assess(
-            dimension=Dimension.TRAJETORIA,
-            rubric=get_rubric("trajetoria/v1"),
-            instruction="Avalie a Trajetória.",
-            angles=["cetico"],
-            target_content=content,
-            evidence=evidence,
-        )
-
+def test_judge_opinions_flow_through_all_dimensions_with_mock_gateway():
+    # Com gateway injetado, os 7 nós de dimensão cabeiam o juiz (T-302) — sem modelo real.
     sub = Submission(artifact_files=_load("multiagente_loop_sem_teto"), metadata=_META)
-    report = _run(sub, contributor=contribute)["report"]
-    trajetoria = next(dr for dr in report.dimensions if dr.dimension is Dimension.TRAJETORIA)
-    assert trajetoria.judge_opinions  # opinião do juiz chegou ao laudo
-    assert trajetoria.judge_opinions[0].rubric_id == "trajetoria/v1"
+    report = _run(sub, gateway=_FakeGateway())["report"]
+    assert len(report.dimensions) == 7
+    # toda dimensão recebeu opinião do juiz, com a rubrica versionada da sua dimensão
+    for dr in report.dimensions:
+        assert dr.judge_opinions, dr.dimension
+        assert dr.judge_opinions[0].rubric_id.startswith(dr.dimension.value)
+
+
+_RAG = """
+from typing import TypedDict
+
+
+class S(TypedDict):
+    q: str
+
+
+RETRIEVER_PROMPT = "Recupere documentos e cite a fonte de cada contexto recuperado."
+ANSWER_PROMPT = "Responda usando apenas o contexto, com citação das fontes."
+
+
+def build(g):
+    g.add_edge("retriever", "answerer")
+"""
+
+
+def test_ca03_rag_profile_weights_hallucination_higher():
+    from avalia.domain.enums import Dimension
+    from avalia.domain.weights import WeightSource
+
+    sub = Submission(artifact_files={"rag.py": _RAG}, metadata=_META)
+    report = _run(sub)["report"]
+    weights = report.header.effective_weights
+    assert weights.source is WeightSource.INFERIDO  # perfil inferido pelo tipo (RAG)
+    assert weights.weights[Dimension.ALUCINACAO] > 1.0 / 7  # > neutro (CA-03)

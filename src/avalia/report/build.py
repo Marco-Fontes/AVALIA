@@ -20,11 +20,12 @@ from avalia.domain.contracts import (
     ReportMetadata,
     TargetClassification,
 )
-from avalia.domain.enums import Confidence, Urgency
+from avalia.domain.enums import Confidence, Dimension, Urgency
 from avalia.domain.tsm import TargetStaticModel
 from avalia.domain.weights import WeightProfile
 
 _URGENCY_ORDER = {Urgency.CRITICO: 0, Urgency.IMPORTANTE: 1, Urgency.SUGESTAO: 2}
+_DIM_ORDER = {d: i for i, d in enumerate(Dimension)}
 
 
 def _overall_confidence(
@@ -82,9 +83,11 @@ def build_report(
         model_substitutions=list(dict.fromkeys(substitutions)),
     )
 
+    # Ordenação estável por Dimension → laudo independe da ordem de chegada do fan-out (T-311).
+    ordered = sorted(results, key=lambda dr: _DIM_ORDER[dr.dimension])
     return EvaluationReport(
         header=header,
-        dimensions=results,
+        dimensions=ordered,
         consolidated_recommendations=_consolidate_recommendations(results),
         approval_conditions=aggregate_score.approval_conditions,
         comparison=None,

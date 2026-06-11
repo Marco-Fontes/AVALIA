@@ -13,18 +13,15 @@ from typing import Any
 from avalia.aggregate import aggregate
 from avalia.classify import classify_target
 from avalia.config.weight_profiles import load_weight_profiles
-from avalia.domain.enums import RunStatus
-from avalia.domain.tsm import TargetStaticModel
-from avalia.evaluators.trajetoria import evaluate_trajetoria
+from avalia.domain.enums import Dimension, RunStatus
+from avalia.evaluators.registry import EVALUATORS
 from avalia.extract.tsm_builder import build_tsm
 from avalia.graph.state import AvaliaState
 from avalia.ingest import ingest_validate
-from avalia.judge.base import JudgeContribution
+from avalia.judge.contributors import build_contribution
+from avalia.judge.framework import GatewayLike
 from avalia.report.build import build_report
 from avalia.weights_select import select_weights
-
-# Contribuição do juiz para a Trajetória, dado o TSM (None = determinístico puro).
-TrajetoriaContributor = Callable[[TargetStaticModel], JudgeContribution]
 
 
 def n0_ingest(state: AvaliaState) -> dict[str, Any]:
@@ -50,14 +47,18 @@ def n3_select_weights(state: AvaliaState) -> dict[str, Any]:
     return {"effective_weights": sel.profile, "applicable_dims": sel.applicable_dims}
 
 
-def make_trajetoria_node(
-    contributor: TrajetoriaContributor | None = None,
+def make_dimension_node(
+    dimension: Dimension, gateway: GatewayLike | None = None
 ) -> Callable[[AvaliaState], dict[str, Any]]:
+    """Nó de avaliação de uma dimensão (fan-out). Se `gateway`, cabeia o juiz (T-302)."""
+    evaluator = EVALUATORS[dimension]
+
     def node(state: AvaliaState) -> dict[str, Any]:
         tsm = state["tsm"]
-        contribution = contributor(tsm) if contributor is not None else None
-        # reducer operator.add concatena no fan-in (M2); aqui só a Trajetória escreve.
-        return {"dimension_results": [evaluate_trajetoria(tsm, contribution)]}
+        classification = state["classification"]
+        contribution = build_contribution(gateway, dimension, tsm) if gateway is not None else None
+        # reducer operator.add concatena os 7 ramos no fan-in (ordenação estável em aggregate).
+        return {"dimension_results": [evaluator(tsm, classification, contribution=contribution)]}
 
     return node
 

@@ -12,11 +12,12 @@ apenas registra implementação, cobertura de requisitos e artefatos. Decisões 
 | **Fase A** — config Claude Code (guardrails) | ✅ concluído |
 | **M0** — contratos + config (T-001..T-007) | ✅ concluído |
 | **M1** — walking skeleton (laudo ponta-a-ponta) | ✅ concluído |
-| **M2** — sete dimensões + agregação completa | ⏳ próximo |
+| **M2** — sete dimensões + agregação completa | ✅ concluído |
+| **M3** — divergência + HITL | ⏳ próximo |
 
-Validação atual: `ruff check .` limpo · `mypy src` limpo (37 arquivos) · **96 testes verdes** (`py -m pytest -q`).
-Smoke ponta-a-ponta: o grafo gera um `EvaluationReport` real (veredito condicional + condição de
-aprovação rastreável) para a fixture de loop sem teto, renderizável em Markdown e JSON.
+Validação atual: `ruff check .` limpo · `mypy src` limpo (46 arquivos) · **122 testes verdes** (`py -m pytest -q`).
+Smoke 7-dim: o grafo gera um `EvaluationReport` com as 7 dimensões em fan-out (veredito
+condicional, condições priorizadas e rastreáveis, recomendações consolidadas), renderizável em MD/JSON.
 
 ---
 
@@ -94,6 +95,39 @@ no e2e com gateway mockado) e será cabeado em todos os avaliadores no fan-out (
 
 ---
 
+## 2c. M2 — Sete dimensões + agregação completa (T-303..307, 309, 311, 502, 503, 702)
+
+Os 6 avaliadores restantes + fan-out paralelo das 7 dimensões com fan-in ordenado; juiz (T-302)
+cabeado em todas as dimensões via gateway injetável; agregação completa.
+
+| Tarefa | Entrega | Arquivos | Requisitos | Testes |
+|---|---|---|---|---|
+| **T-303** | Custo (C2 determinístico: tokens/cache/teto; C1/C3 juiz) | `evaluators/custo.py` | RF-DIM-C1/2/3 | `tests/evaluators/test_dimensions.py` |
+| **T-304** | Performance (P2 timeout/streaming; P1 juiz) | `evaluators/performance.py` | RF-DIM-P1/2 | idem |
+| **T-305** ⊛ | Qualidade (Q1 harness → CA-06 confiança baixa) | `evaluators/qualidade.py` | RF-DIM-Q1; RF-13; CA-06 | idem |
+| **T-306** ⊛ | Assertividade (A2 escalonamento; A1 juiz) | `evaluators/assertividade.py` | RF-DIM-A1/2; RF-13 | idem |
+| **T-307** ⊛ | Alucinação (citação; H1 juiz; CA-07) | `evaluators/alucinacao.py` | RF-DIM-H1; RF-13; CA-07 | idem |
+| **T-309** | Robustez (retry/fallback/try/validação; anti-injeção juiz) | `evaluators/robustez.py` | RF-DIM-R1/2/3 | idem |
+| **T-311** | Fan-out/fan-in das 7 dimensões + ordenação estável | `graph/build_graph.py`, `graph/nodes.py`, `aggregate.py`, `report/build.py` | plan §3.4/§5; RNF-01 | `tests/report/test_m2_aggregation.py`, `tests/graph/test_e2e.py` |
+| **T-502** | exclusão por piso de confiança (multi-dimensão) | `aggregate.py` | RF-22 | `tests/report/test_m2_aggregation.py` |
+| **T-503** | condições de aprovação de todas as dimensões, priorizadas | `aggregate.py` | RF-19; CA-09 | idem |
+| **T-702** | recomendações consolidadas/priorizadas (7 dims) | `report/build.py` | RF-27 | `tests/graph/test_e2e.py` |
+
+⊛ = comportamental (`static_limitations` obrigatório, RF-13). Suporte determinístico novo no
+extrator: `token_limit`, `input_validation`, `fallback_modelo`, `has_harness`.
+
+**Aceite coberto no M2:** CA-03 (perfil RAG pesa alucinação > neutro), CA-06 (sem harness →
+confiança baixa), CA-07 (Alucinação declara limite Fase 1), CA-08 (Trajetória inaplicável em
+agente único → renormalização), CA-09 (condição rastreável), T-311 (agregação independe da ordem).
+
+**Decisões do M2:** juiz **opcional por injeção** (gateway mockado nos testes; default
+determinístico); applicability decidida **no avaliador** (retorna `applicable=False`, agregação
+exclui+renormaliza); achados respeitam a **dimensão dona** (ex.: `SEM_FALLBACK_MODELO` é da
+Robustez — o Custo só o pondera no juiz, regra 4); score **ancorado nos achados determinísticos**,
+juiz acrescenta opinião/achados sem inventar score.
+
+---
+
 ## 3. Cobertura requisito → artefato no M0 (espelha tasks §14, sem editar o original)
 
 | Requisito | Artefato que satisfaz (M0) |
@@ -168,16 +202,16 @@ futura precise contrariar uma decisão, o protocolo é **PARAR e confirmar** (n�
 
 ---
 
-## 7. Próximo passo — M2 (sete dimensões + agregação completa)
+## 7. Próximo passo — M3 (divergência + HITL)
 
-Fan-out das 7 dimensões a partir de N3 (T-303..T-309) com fan-in ordenado (T-311), cabeando o
-juiz (T-302) em todos os avaliadores; exclusão por piso de confiança (T-502), condições de
-aprovação completas/priorizadas (T-503), recomendações consolidadas (T-702).
+Épico E4: N4 `detect_divergence` (gatilho por faixas qualitativas divergentes ou confiança <
+piso, T-401), re-julgamento automático/reconciliação (T-402), `ApprovalProvider`+CLI (T-403),
+N4h `human_gate` com interrupt/resume (T-404, usa o checkpointer já cabeado), registro de
+divergências no laudo (T-405). Valida CA-10 (reconciliação automática) e CA-11 (escalonamento).
 
-### Decisões/atritos registrados no M1
+### Decisões/atritos acumulados (M1–M2)
 - **Extrator `ast`-only** (escolha do usuário); tree-sitter fica para M5 via a interface plugável.
-- **T-308 determinístico-âncora**; juiz injetável (demonstrado no e2e com gateway mockado),
-  cabeamento pleno do juiz nos avaliadores ocorre no fan-out (M2).
+- **Juiz injetável por gateway**; default determinístico, gateway mockado nos testes (M1–M2).
 - **`StateGraph` tipado como `Any`** em `build_graph.py`: fronteira pragmática com o typing
   estrito do LangGraph (nós `Callable[[AvaliaState], dict]` não encaixam no `_Node[Never]`).
 - **Atrito de guardas (a melhorar):** `guard_no_target_exec` e `block_sql_destructive` são

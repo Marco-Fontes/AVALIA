@@ -46,10 +46,16 @@ def _condition_for(finding: Finding) -> ApprovalCondition:
     )
 
 
+_DIM_ORDER = {d: i for i, d in enumerate(Dimension)}
+_URGENCY_RANK = {Urgency.CRITICO: 0, Urgency.IMPORTANTE: 1, Urgency.SUGESTAO: 2}
+
+
 def aggregate(
     results: list[DimensionResult], weights: WeightProfile, config: EvaluatorConfig
 ) -> AggregateScore:
-    scored = [dr for dr in results if dr.applicable and dr.score is not None]
+    # Ordenação estável por Dimension → resultado independe da ordem de chegada do fan-out (T-311).
+    ordered = sorted(results, key=lambda dr: _DIM_ORDER[dr.dimension])
+    scored = [dr for dr in ordered if dr.applicable and dr.score is not None]
     included = [dr for dr in scored if not _below_floor(dr, config)]
     excluded: list[Dimension] = [dr.dimension for dr in scored if _below_floor(dr, config)]
 
@@ -69,6 +75,8 @@ def aggregate(
             for finding in dr.findings:
                 if finding.urgency in _CONDITION_URGENCIES:
                     conditions.append(_condition_for(finding))
+        # T-503: priorizadas por urgência (crítico antes de importante)
+        conditions.sort(key=lambda c: _URGENCY_RANK[c.urgency])
 
     return AggregateScore(
         score=score,
