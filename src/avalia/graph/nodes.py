@@ -14,6 +14,7 @@ from langgraph.types import interrupt
 
 from avalia.aggregate import aggregate
 from avalia.classify import classify_target
+from avalia.compare import compare
 from avalia.config.weight_profiles import load_weight_profiles
 from avalia.divergence import detect_candidates, reconcile_candidate
 from avalia.domain.contracts import (
@@ -29,6 +30,7 @@ from avalia.graph.state import AvaliaState
 from avalia.ingest import ingest_validate
 from avalia.judge.contributors import build_contribution
 from avalia.judge.framework import GatewayLike
+from avalia.persistence.repository import ReportRepository, make_record
 from avalia.report.build import build_report
 from avalia.weights_select import select_weights
 
@@ -134,18 +136,48 @@ def n5_aggregate(state: AvaliaState) -> dict[str, Any]:
     return {"aggregate": agg}
 
 
-def n7_build_report(state: AvaliaState) -> dict[str, Any]:
-    report = build_report(
-        classification=state["classification"],
-        weights=state["effective_weights"],
-        aggregate_score=state["aggregate"],
-        results=state["dimension_results"],
-        inventory=state["inventory"],
-        tsm=state["tsm"],
-        config=state["submission"].config,
-        divergences=list(state.get("divergences", [])),
-    )
-    return {"report": report, "status": RunStatus.OK}
+def make_compare_history_node(
+    repository: ReportRepository | None = None,
+) -> Callable[[AvaliaState], dict[str, Any]]:
+    """N6: compara com a versão anterior do mesmo alvo, se houver (T-605/CB-06)."""
+
+    def node(state: AvaliaState) -> dict[str, Any]:
+        if repository is None:
+            return {"comparison": None}
+        prev = repository.latest_for(state["submission"].metadata.target_id)
+        if prev is None:
+            return {"comparison": None}
+        index = sorted({f.identity for dr in state["dimension_results"] for f in dr.findings})
+        return {"comparison": compare(state["dimension_results"], index, prev)}
+
+    return node
+
+
+def make_build_report_node(
+    repository: ReportRepository | None = None,
+) -> Callable[[AvaliaState], dict[str, Any]]:
+    """N7: monta o laudo (com comparação) e o persiste no repositório (T-701/T-603)."""
+
+    def node(state: AvaliaState) -> dict[str, Any]:
+        comparison = state.get("comparison")
+        no_history = repository is not None and comparison is None
+        report = build_report(
+            classification=state["classification"],
+            weights=state["effective_weights"],
+            aggregate_score=state["aggregate"],
+            results=state["dimension_results"],
+            inventory=state["inventory"],
+            tsm=state["tsm"],
+            config=state["submission"].config,
+            divergences=list(state.get("divergences", [])),
+            comparison=comparison,
+            no_history_note=no_history,
+        )
+        if repository is not None:
+            repository.save(make_record(report, state["submission"].metadata))
+        return {"report": report, "status": RunStatus.OK}
+
+    return node
 
 
 def route_after_ingest(state: AvaliaState) -> str:

@@ -20,6 +20,7 @@ from avalia.domain.contracts import (
     EvaluationReport,
     HumanDecision,
     TargetClassification,
+    VersionComparison,
 )
 from avalia.domain.enums import Dimension, RunStatus
 from avalia.domain.submission import Submission
@@ -40,6 +41,7 @@ class AvaliaState(TypedDict, total=False):
     pending_divergences: list[DivergenceCandidate]
     divergences: list[DivergenceRecord]
     human_decisions: list[HumanDecision]
+    comparison: VersionComparison | None
     aggregate: AggregateScore
     report: EvaluationReport
     status: RunStatus

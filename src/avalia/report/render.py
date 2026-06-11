@@ -72,6 +72,20 @@ def render_markdown(report: EvaluationReport) -> str:
             )
         lines.append("")
 
+    if report.comparison is not None:
+        cmp = report.comparison
+        lines.append("## Comparação com versão anterior")
+        lines.append(f"- Laudo anterior: `{cmp.prev_report_id[:12]}…`")
+        if cmp.regressions:
+            lines.append(f"- Regressões: {', '.join(cmp.regressions)}")
+        if cmp.improvements:
+            lines.append(f"- Melhorias: {', '.join(cmp.improvements)}")
+        lines.append(
+            f"- Achados: {len(cmp.resolved_findings)} resolvido(s), "
+            f"{len(cmp.persistent_findings)} persistente(s), {len(cmp.new_findings)} novo(s)"
+        )
+        lines.append("")
+
     meta = report.metadata
     lines.append("## Metadados e limitações")
     lines.append(f"- Componentes presentes: {', '.join(meta.inventory.present) or '—'}")

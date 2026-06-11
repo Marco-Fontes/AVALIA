@@ -21,6 +21,7 @@ from avalia.domain.contracts import (
     ReportMetadata,
     ResolvedBy,
     TargetClassification,
+    VersionComparison,
 )
 from avalia.domain.enums import Confidence, Dimension, Urgency
 from avalia.domain.tsm import TargetStaticModel
@@ -86,6 +87,8 @@ def build_report(
     tsm: TargetStaticModel,
     config: EvaluatorConfig,
     divergences: list[DivergenceRecord] | None = None,
+    comparison: VersionComparison | None = None,
+    no_history_note: bool = False,
 ) -> EvaluationReport:
     divergences = divergences or []
     # Divergência escalada ao humano reduz a confiança reportada da dimensão (M3, regra 6).
@@ -116,6 +119,10 @@ def build_report(
         known_limitations.append(
             f"Divergências de julgamento resolvidas por humano em: {', '.join(escalated)}."
         )
+    if no_history_note:
+        known_limitations.append(
+            "Sem versão anterior deste alvo; comparação histórica não disponível (CB-06)."
+        )
 
     metadata = ReportMetadata(
         effective_config=config,
@@ -134,7 +141,7 @@ def build_report(
         dimensions=ordered,
         consolidated_recommendations=_consolidate_recommendations(results),
         approval_conditions=aggregate_score.approval_conditions,
-        comparison=None,
+        comparison=comparison,
         divergences=sorted_divergences,
         metadata=metadata,
     )
