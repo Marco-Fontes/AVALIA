@@ -18,6 +18,7 @@ from avalia.evaluators.base import (
     recommend,
 )
 from avalia.evaluators.checks import deterministic_outcome
+from avalia.extract.contradictions import detect_contradictions
 from avalia.judge.base import JudgeContribution
 
 RUBRIC = "custo/v1"
@@ -70,6 +71,16 @@ def evaluate_custo(
         findings.append(f)
         recs.append(recommend("Limitar iterações do loop para conter custo", Urgency.IMPORTANTE, f))
 
+    # T-106: contradições modelo declarado≠usado (dimensão dona = Custo, regra 4) — CB-08.
+    contradictions = [f for f in detect_contradictions(tsm) if f.dimension is Dimension.CUSTO]
+    for f in contradictions:
+        findings.append(f)
+        recs.append(
+            recommend(
+                "Alinhar o modelo declarado na config com o usado no código", Urgency.IMPORTANTE, f
+            )
+        )
+
     outcomes = [
         deterministic_outcome(
             "C2_controles_custo",
@@ -87,6 +98,12 @@ def evaluate_custo(
         "Controles de custo avaliados deterministicamente (limite de tokens, cache, fallback de "
         f"modelo, teto de loop): {len(findings)} lacuna(s) encontrada(s)."
     )
+    base_conf = Confidence.MEDIO if contradictions else Confidence.ALTO
+    conf_reason = (
+        "Contradição config↔código (modelo declarado≠usado) reduz a confiança (CB-08)."
+        if contradictions
+        else None
+    )
     return assemble(
         Dimension.CUSTO,
         applicable=True,
@@ -94,6 +111,7 @@ def evaluate_custo(
         deterministic_findings=findings,
         recommendations=recs,
         check_outcomes=outcomes,
-        base_confidence=Confidence.ALTO,
+        base_confidence=base_conf,
+        confidence_reason=conf_reason,
         contribution=contribution,
     )

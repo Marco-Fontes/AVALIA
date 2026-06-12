@@ -55,6 +55,9 @@ class FindingType(StrEnum):
     SEM_TRATAMENTO_ERRO = "sem_tratamento_erro"
     SEM_VALIDACAO_ENTRADA = "sem_validacao_entrada"
     GUARDRAIL_INJECAO_AUSENTE = "guardrail_injecao_ausente"
+    # --- Contradições config↔código (CB-08, T-106) — atribuídas à dimensão afetada ---
+    CONTRADICAO_MODELO_CONFIG = "contradicao_modelo_config"  # modelo declarado ≠ usado (Custo)
+    CONTRADICAO_FLUXO_PROMPT = "contradicao_fluxo_prompt"  # prompt assume fluxo inexistente (Traj.)
 
 
 # Cada FindingType pertence a UMA dimensão dona (RF-29). Mapa exaustivo — validado abaixo.
@@ -86,6 +89,9 @@ FINDING_TYPE_DIMENSION: dict[FindingType, Dimension] = {
     FindingType.SEM_TRATAMENTO_ERRO: Dimension.ROBUSTEZ,
     FindingType.SEM_VALIDACAO_ENTRADA: Dimension.ROBUSTEZ,
     FindingType.GUARDRAIL_INJECAO_AUSENTE: Dimension.ROBUSTEZ,
+    # Contradições (CB-08, T-106): cada uma na dimensão afetada (regra 4).
+    FindingType.CONTRADICAO_MODELO_CONFIG: Dimension.CUSTO,
+    FindingType.CONTRADICAO_FLUXO_PROMPT: Dimension.TRAJETORIA,
 }
 
 # Garantia em tempo de import: nenhum FindingType órfão (toda a taxonomia tem dona).

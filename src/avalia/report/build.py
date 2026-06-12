@@ -36,6 +36,44 @@ def _reduce_confidence(conf: Confidence) -> Confidence:
     return _CONF_ORDER[max(0, _CONF_ORDER.index(conf) - 1)]
 
 
+def _apply_readability_confidence(
+    results: list[DimensionResult], tsm: TargetStaticModel
+) -> list[DimensionResult]:
+    """CB-02: dimensões impactadas por arquivo ilegível têm confiança rebaixada a 'baixo'."""
+    impacted = set(tsm.readability.impacted_dims)
+    if not impacted:
+        return results
+    out: list[DimensionResult] = []
+    for dr in results:
+        if dr.dimension in impacted and dr.confidence is not Confidence.BAIXO:
+            note = "Confiança reduzida: há arquivo ilegível impactando esta dimensão (CB-02)."
+            out.append(
+                dr.model_copy(update={"confidence": Confidence.BAIXO, "confidence_reason": note})
+            )
+        else:
+            out.append(dr)
+    return out
+
+
+def _apply_partial_confidence(results: list[DimensionResult]) -> list[DimensionResult]:
+    """RF-12/CA-13: laudo parcial reduz a confiança das dimensões (cobertura incompleta)."""
+    out: list[DimensionResult] = []
+    for dr in results:
+        if dr.applicable and dr.confidence is not Confidence.BAIXO:
+            note = "Confiança reduzida: laudo parcial — análise não foi integral (RF-12/CA-13)."
+            out.append(
+                dr.model_copy(
+                    update={
+                        "confidence": _reduce_confidence(dr.confidence),
+                        "confidence_reason": note,
+                    }
+                )
+            )
+        else:
+            out.append(dr)
+    return out
+
+
 def _apply_divergence_confidence(
     results: list[DimensionResult], divergences: list[DivergenceRecord]
 ) -> list[DimensionResult]:
@@ -89,8 +127,16 @@ def build_report(
     divergences: list[DivergenceRecord] | None = None,
     comparison: VersionComparison | None = None,
     no_history_note: bool = False,
+    partial: bool = False,
+    partial_reasons: list[str] | None = None,
 ) -> EvaluationReport:
     divergences = divergences or []
+    partial_reasons = partial_reasons or []
+    # CB-02: ilegibilidade rebaixa a confiança das dimensões impactadas.
+    results = _apply_readability_confidence(results, tsm)
+    # RF-12/CA-13: laudo parcial reduz a confiança das dimensões (cobertura incompleta).
+    if partial:
+        results = _apply_partial_confidence(results)
     # Divergência escalada ao humano reduz a confiança reportada da dimensão (M3, regra 6).
     results = _apply_divergence_confidence(results, divergences)
 
@@ -104,6 +150,11 @@ def build_report(
 
     substitutions = [s for dr in results for s in dr.model_substitutions]
     known_limitations = list(classification.caveats)
+    if partial:
+        detail = f" Motivos: {'; '.join(partial_reasons)}." if partial_reasons else ""
+        known_limitations.append(
+            f"Laudo PARCIAL — a análise não foi integral; confiança reduzida (RF-12/CA-13).{detail}"
+        )
     if tsm.coverage.sampled:
         known_limitations.append(
             f"Arquivos não analisados a fundo (best-effort): {', '.join(tsm.coverage.sampled)}."

@@ -93,6 +93,9 @@ class EvaluatorConfig(BaseModel):
     confidence_floor: Confidence | None = None
     cost_ceiling: float | None = Field(default=None, gt=0)
     time_ceiling_s: float | None = Field(default=None, gt=0)
+    # Teto determinístico de cobertura na indexação (T-105/RF-12): acima dele, os arquivos de
+    # menor sinal são amostrados (não analisados a fundo) e declarados em AnalysisCoverage.
+    max_analyzed_files: int | None = Field(default=None, gt=0)
     node_models: dict[str, NodeModelConfig] = Field(default_factory=dict)
     divergence: DivergenceConfig = DivergenceConfig()
 
