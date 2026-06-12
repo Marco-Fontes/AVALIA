@@ -1,0 +1,30 @@
+# Seed SINTÉTICO de meta-avaliação (T-1007) — apenas para o smoke do pipeline de medição.
+# A curadoria de um dataset REAL com veredito humano de referência é D-03 (externa, não código);
+# o limiar de "confiável" é D-04. Rótulos abaixo são plausíveis vs. a saída atual do AVALIA, mas
+# NÃO constituem calibração significativa.
+cases:
+  - target_id: agente_unico
+    expected_topology: agente_unico_borderline
+    dimension_labels:
+      custo: pronto
+      qualidade: pronto        # confiança baixa no laudo → alimenta o bucket "baixo"
+      robustez: insuficiente
+    notes: "agente único simples; Trajetória é N/A"
+
+  - target_id: multiagente_loop_sem_teto
+    expected_topology: multiagente
+    expected_verdict: aprovacao_condicional
+    dimension_labels:
+      custo: adequado_com_ressalvas
+      qualidade: pronto
+      trajetoria: adequado_com_ressalvas   # loop sem teto rebaixa a trajetória
+      robustez: insuficiente
+    notes: "loop sem teto na faixa condicional"
+
+  - target_id: contradicao_config_codigo
+    expected_topology: multiagente
+    dimension_labels:
+      custo: adequado_com_ressalvas
+      trajetoria: pronto
+      robustez: insuficiente
+    notes: "contradições config↔código"

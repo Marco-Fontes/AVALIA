@@ -1,6 +1,6 @@
 # AVALIA — Registro de Execução (Fase 4 / Implementação)
 
-**Atualizado:** 2026-06-11 · **Iteração atual:** M4 → M5.
+**Atualizado:** 2026-06-11 · **Iteração atual:** M5 → M6.
 **Fontes da verdade (imutáveis):** [spec.md](spec.md) v0.4 · [plan.md](plan.md) v1.3 · [tasks.md](tasks.md) v1.3.
 
 Este documento é o **log rastreável** do que já foi executado. Não altera as fontes da verdade —
@@ -16,15 +16,16 @@ apenas registra implementação, cobertura de requisitos e artefatos. Decisões 
 | **M3** — divergência + HITL (E4) | ✅ concluído |
 | **M4** — histórico + comparação (E6) | ✅ concluído |
 | **M5** — robustez de escala + streaming + ganchos Fase 2 | ✅ concluído |
-| **M6** — observabilidade + meta-avaliação (E9) | ⏳ próximo |
+| **M6** — observabilidade + meta-avaliação (E9) | ✅ concluído |
+| **M7** — suíte de aceite fechada (E10 completo) | ⏳ próximo |
 
-Validação atual: `ruff check .` limpo · `mypy src` limpo (63 arquivos) · **159 testes verdes**
-(`py -m pytest -q`; +4 Postgres gated por `AVALIA_PG_DSN`).
-Smoke M5: artefato grande + `max_analyzed_files` baixo → `status=partial`, cobertura declara
-amostrados, confiança reduzida (CA-13); fixture ofuscada → ilegível + 7 dims impactadas (CB-02);
-contradições modelo↔config e prompt↔fluxo → Findings nas dimensões donas (CB-08); gateway que
-esgota o fallback → dimensão degradada + parcial + substituição declarada (CB-10); `astream_events`
-projeta progresso dimensão a dimensão (T-803).
+Validação atual: `ruff check .` limpo · `mypy src` limpo (69 arquivos) · **165 testes verdes**
+(`py -m pytest -q`; +4 Postgres gated por `AVALIA_PG_DSN`). Gate leve `-m fast`: 143 verdes,
+smoke de meta-avaliação **deselecionado** (fora do CI crítico).
+Smoke M6: `SpanCollector` registra spans por nó (latência) sem exigir LangSmith — laudo gera
+mesmo com observabilidade ausente (MS-10); harness offline computa concordância de veredito por
+dimensão (MS-04), de classificação (MS-09) e calibração de confiança (MS-08) sobre um seed
+sintético, com a calibração significativa declarada bloqueada por D-03/D-04.
 
 ---
 
@@ -236,6 +237,36 @@ reaplicando o import junto do uso). Colisão de basename no pytest (`test_hooks.
 
 ---
 
+## 2g. M6 — Observabilidade + meta-avaliação (E9: T-901, T-902; smoke T-1007)
+
+Entrega a infraestrutura de medição: tracing não-bloqueante (MS-10) e o harness offline que valida
+se o AVALIA julga bem (MS-04/08/09). NÃO fixa limiar de "confiável" (D-04) nem cura dataset (D-03).
+
+| Tarefa | Entrega | Arquivos | Requisitos | Testes |
+|---|---|---|---|---|
+| **T-901** | tracing dual: `SpanCollector` (callback in-process, latência/tokens) + LangSmith opcional env-gated, no-op se ausente | `obs/{__init__,spans,tracing}.py` | MS-10; plan §3.11 | `tests/obs/test_tracing_spans.py` (4) |
+| **T-902** | esquema do dataset (`BenchmarkCase/Dataset`, `band_of_score`, loader YAML) + harness offline (concordância de veredito/dimensão, classificação, calibração) | `metaeval/{__init__,dataset,harness}.py` | MS-04/07/08/09; D-03/D-04 | (via smoke) |
+| **T-1007** | smoke do pipeline de medição sobre seed sintético | `tests/metaeval/fixtures/seed.yaml`, `tests/metaeval/test_metaeval_smoke.py` (2) | MS-04/08/09 (smoke) | — |
+
+**Decisões do M6 (confirmadas com o usuário):**
+- **Tracing dual:** o `SpanCollector` (subclasse de `BaseCallbackHandler`) registra spans por nó
+  (latência sempre; tokens/custo quando há chamada real de modelo) e é aplicado no `invoke` via
+  `instrument_config`, **sem alterar `build_avalia_graph`**. A exportação LangSmith é env-gated
+  (`AVALIA_TRACING`/`LANGCHAIN_TRACING_V2`) com import guardado → `[]` se ausente. O laudo gera
+  mesmo sem observabilidade (não-bloqueante, plan §3.11).
+- **Meta-avaliação = job offline** sobre `EvaluationReport`s + dataset; reusa `band_of_score`
+  (faixas de produto, spec §4.2.6) para mapear o score de cada dimensão à faixa comparável ao
+  rótulo humano. A métrica primária é **concordância de veredito por dimensão** (EC-10/MS-04).
+- **Calibração significativa BLOQUEADA por D-03/D-04** — declarada em
+  `MetaEvalReport.calibration_blocked_reason`; o código entrega o pipeline, não o número.
+- **Smoke fora do gate `-m fast`:** `test_metaeval_smoke.py` não recebe a marca `fast`, então o
+  Stop hook (`pytest -m fast`) o ignora; roda em `pytest -q` completo.
+
+**Aceite coberto no M6:** MS-10 (spans aparecem; laudo gera sem LangSmith), MS-04/08/09 (índices
+calculados pelo harness sobre o seed — validação mecânica, não calibração).
+
+---
+
 ## 3. Cobertura requisito → artefato no M0 (espelha tasks §14, sem editar o original)
 
 | Requisito | Artefato que satisfaz (M0) |
@@ -310,16 +341,20 @@ futura precise contrariar uma decisão, o protocolo é **PARAR e confirmar** (n�
 
 ---
 
-## 7. Próximo passo — M6 (observabilidade + meta-avaliação, Épico E9)
+## 7. Próximo passo — M7 (suíte de aceite fechada, Épico E10 completo)
 
-Tracing LangSmith não-bloqueante (T-901), esquema do dataset de benchmark + harness offline de
-meta-avaliação (T-902, com smoke test T-1007). A calibração significativa fica BLOQUEADA por D-03
-(dataset curado) e D-04 (primeiro lote) — dependência externa, não código pendente. Depois, M7
-fecha a suíte de aceite (E10 completo, todos os CA/CB verdes). **tree-sitter** (segundo extrator)
-segue deferido para uma iteração futura, via a interface plugável (T-101).
+Fechar a suíte de aceite: garantir um teste explícito por CA-01..15 e CB-01..10 (tasks §8/§12),
+mapeando caso→teste, e a guarda contínua RNF-05 (T-1006, já ativa). A calibração significativa de
+meta-avaliação permanece BLOQUEADA por D-03 (dataset curado) e D-04 (primeiro lote) — dependência
+externa, não código pendente. **tree-sitter** (segundo extrator) segue deferido para uma iteração
+futura, via a interface plugável (T-101).
 
-### Decisões/atritos acumulados (M1–M5)
+### Decisões/atritos acumulados (M1–M6)
 - **Extrator `ast`-only** (escolha do usuário); tree-sitter deferido via a interface plugável.
+- **Tracing aplicado no `invoke` (callbacks), não na construção do grafo** — `build_avalia_graph`
+  permanece sem dependência de observabilidade; LangSmith é opcional e nunca bloqueia o laudo.
+- **Meta-avaliação é job offline** sobre laudos + dataset; o limiar de "confiável" é diferido
+  (D-04) e o dataset real é curadoria humana (D-03) — o código entrega só o pipeline de medição.
 - **Juiz injetável por gateway**; default determinístico, gateway mockado nos testes.
 - **Resolução de divergência registra + ajusta confiança**, sem sobrescrever o score (regra 6).
 - **Serde do checkpointer LangGraph**: registrar `avalia.domain.*` (chip de tarefa) antes que
