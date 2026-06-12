@@ -21,6 +21,7 @@ from langgraph.graph import END, StateGraph
 
 from avalia.domain.enums import Dimension
 from avalia.graph.nodes import (
+    make_budget_degraded_node,
     make_build_report_node,
     make_compare_history_node,
     make_detect_divergence_node,
@@ -33,6 +34,7 @@ from avalia.graph.nodes import (
     n5_aggregate,
     route_after_divergence,
     route_after_ingest,
+    route_after_weights,
 )
 from avalia.graph.state import AvaliaState
 from avalia.judge.framework import GatewayLike
@@ -56,6 +58,7 @@ def build_avalia_graph(
     g.add_node("select_weights", n3_select_weights)
     g.add_node("detect_divergence", make_detect_divergence_node(gateway))
     g.add_node("human_gate", n4h_human_gate)
+    g.add_node("budget_degraded", make_budget_degraded_node())
     g.add_node("aggregate", n5_aggregate)
     g.add_node("compare_history", make_compare_history_node(repository))
     g.add_node("build_report", make_build_report_node(repository))
@@ -68,9 +71,11 @@ def build_avalia_graph(
     g.add_conditional_edges("ingest", route_after_ingest, {"error": END, "continue": "index"})
     g.add_edge("index", "classify")
     g.add_edge("classify", "select_weights")
-    for name in dim_nodes:  # fan-out
-        g.add_edge("select_weights", name)
+    # N3 → fan-out das 7 dimensões, OU caminho degradado se o budget estourou (T-802/CA-13).
+    g.add_conditional_edges("select_weights", route_after_weights, [*dim_nodes, "budget_degraded"])
+    for name in dim_nodes:
         g.add_edge(name, "detect_divergence")  # fan-in (N4 espera os 7)
+    g.add_edge("budget_degraded", "aggregate")  # parcial: pula divergência/HITL
     # N4 → human_gate (divergência persistente) vs. aggregate
     g.add_conditional_edges(
         "detect_divergence",

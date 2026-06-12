@@ -23,6 +23,7 @@ from avalia.domain.enums import Confidence, Dimension, Topology, Urgency
 from avalia.domain.taxonomy import FindingType
 from avalia.domain.tsm import TargetStaticModel
 from avalia.evaluators.checks import deterministic_outcome
+from avalia.extract.contradictions import detect_contradictions
 from avalia.judge.base import JudgeContribution
 
 TRAJETORIA_RUBRIC = "trajetoria/v1"
@@ -81,6 +82,18 @@ def evaluate_trajetoria(
             )
         )
 
+    # T-106: contradições prompt↔fluxo (dimensão dona = Trajetória, regra 4) — CB-08.
+    contradictions = [f for f in detect_contradictions(tsm) if f.dimension is Dimension.TRAJETORIA]
+    for f in contradictions:
+        findings.append(f)
+        recommendations.append(
+            Recommendation(
+                statement="Implementar (ou corrigir) o fluxo de roteamento que o prompt assume",
+                urgency=Urgency.IMPORTANTE,
+                traces_to=f.identity,
+            )
+        )
+
     loop_facts = sorted([loop.evidence.symbol, loop.has_cap] for loop in tsm.loops)
     outcomes = [
         deterministic_outcome(
@@ -95,7 +108,12 @@ def evaluate_trajetoria(
     score = _BASE_SCORE
     if uncapped:
         score = max(50, _BASE_SCORE - _NO_CAP_PENALTY * len(uncapped))
+    score = max(0, score - 9 * len(contradictions))  # contradição (IMPORTANTE) penaliza
     confidence = Confidence.ALTO  # veredito governado por fato determinístico
+    confidence_reason: str | None = None
+    if contradictions:
+        confidence = Confidence.MEDIO
+        confidence_reason = "Contradição entre prompt e fluxo do grafo reduz a confiança (CB-08)."
 
     if uncapped:
         reasoning = (
@@ -119,6 +137,7 @@ def evaluate_trajetoria(
         applicable=True,
         score=score,
         confidence=confidence,
+        confidence_reason=confidence_reason,
         reasoning=reasoning,
         findings=findings,
         recommendations=recommendations,

@@ -22,6 +22,11 @@ def render_markdown(report: EvaluationReport) -> str:
     lines: list[str] = []
     lines.append("# Laudo de Avaliação AVALIA (Fase 1 — estática)")
     lines.append("")
+    if any(lim.startswith("Laudo PARCIAL") for lim in report.metadata.known_limitations):
+        lines.append(
+            "> ⚠️ **LAUDO PARCIAL** — a análise não foi integral; confiança reduzida (RF-12)."
+        )
+        lines.append("")
     lines.append(f"- **Veredito:** {h.verdict.value} · **Score:** {h.score}/100")
     lines.append(f"- **Confiança geral:** {h.confidence.value}")
     lines.append(
