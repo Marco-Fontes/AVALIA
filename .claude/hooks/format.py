@@ -7,6 +7,7 @@ fadiga de aprovação de formatação. Defensivo: se ruff ainda não estiver ins
 
 Não executa o código do alvo — só formata o fonte do próprio AVALIA.
 """
+
 from __future__ import annotations
 
 import json
@@ -29,7 +30,9 @@ def main() -> None:
         try:
             subprocess.run(
                 [sys.executable, "-m", "ruff", *args],
-                capture_output=True, timeout=30, check=False,
+                capture_output=True,
+                timeout=30,
+                check=False,
             )
         except Exception:
             # ruff ausente ou erro de ambiente → não atrapalha o fluxo.

@@ -15,6 +15,7 @@ modelo legitimamente vive.
 
 Falha interna do hook → exit 0 (allow): um guard quebrado não pode travar o trabalho.
 """
+
 from __future__ import annotations
 
 import ast
@@ -28,8 +29,12 @@ MODEL_SLUG = re.compile(r"^(claude-|gpt-|gemini-|o[134]-|moonshot|kimi-)", re.IG
 
 # Construtores de cliente LLM proibidos fora do gateway (RNF-12).
 CLIENT_NAMES = {
-    "Anthropic", "AsyncAnthropic", "ChatAnthropic",
-    "OpenAI", "AsyncOpenAI", "ChatOpenAI",
+    "Anthropic",
+    "AsyncAnthropic",
+    "ChatAnthropic",
+    "OpenAI",
+    "AsyncOpenAI",
+    "ChatOpenAI",
 }
 
 # Substrings de caminho isentas (config de modelo vive aqui legitimamente).
@@ -71,7 +76,7 @@ def violations(content: str) -> list[str]:
         # RNF-06: slug de modelo em literal de string de código
         if isinstance(node, ast.Constant) and isinstance(node.value, str):
             if MODEL_SLUG.match(node.value.strip()):
-                found.append(f"slug de modelo hardcoded: \"{node.value}\" (RNF-06)")
+                found.append(f'slug de modelo hardcoded: "{node.value}" (RNF-06)')
         # RNF-12: instanciação direta de cliente LLM
         if isinstance(node, ast.Call):
             fn = node.func
@@ -99,13 +104,17 @@ def main() -> None:
             "Mova slugs para config e use o ModelGateway (default Opus→Sonnet, "
             "back-ends Anthropic/OpenRouter)."
         )
-        print(json.dumps({
-            "hookSpecificOutput": {
-                "hookEventName": "PreToolUse",
-                "permissionDecision": "deny",
-                "permissionDecisionReason": reason,
-            }
-        }))
+        print(
+            json.dumps(
+                {
+                    "hookSpecificOutput": {
+                        "hookEventName": "PreToolUse",
+                        "permissionDecision": "deny",
+                        "permissionDecisionReason": reason,
+                    }
+                }
+            )
+        )
         sys.exit(0)
     sys.exit(0)
 
