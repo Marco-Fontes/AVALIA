@@ -33,6 +33,9 @@ packages = ["src/avalia"]
 line-length = 100
 target-version = "py312"
 src = ["src", "tests"]
+# Fixtures são DADOS de teste (alvos sintéticos: ofuscado, contradições) — intencionalmente
+# não-idiomáticos. Não devem ser lintados nem formatados.
+extend-exclude = ["tests/fixtures"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B"]

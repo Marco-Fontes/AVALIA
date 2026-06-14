@@ -265,6 +265,15 @@ se o AVALIA julga bem (MS-04/08/09). NÃO fixa limiar de "confiável" (D-04) nem
 **Aceite coberto no M6:** MS-10 (spans aparecem; laudo gera sem LangSmith), MS-04/08/09 (índices
 calculados pelo harness sobre o seed — validação mecânica, não calibração).
 
+**CI (resposta à revisão da PR #7):** adicionado `.github/workflows/ci.yml` (GitHub Actions) que
+**enforça** nos PRs e em push para `master` os mesmos gates locais (CLAUDE.md §Comandos canônicos):
+`ruff check` + `ruff format --check` + `mypy src` + `pytest -q` + guarda RNF-05. Um **serviço
+Postgres** define `AVALIA_PG_DSN`, então os testes-contrato do repositório (T-601) deixam de ser
+*skipped* e rodam de verdade no CI. Para o gate de formatação ficar verde repo-wide: `tests/fixtures`
+foi excluído do ruff (são DADOS de teste intencionalmente não-idiomáticos) e os hooks da Fase A
+(`.claude/hooks/*`) foram formatados. Antes só havia enforcement local (Stop hook) — agora há
+enforcement mecânico no PR.
+
 ---
 
 ## 3. Cobertura requisito → artefato no M0 (espelha tasks §14, sem editar o original)
