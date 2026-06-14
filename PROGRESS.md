@@ -1,6 +1,6 @@
 # AVALIA — Registro de Execução (Fase 4 / Implementação)
 
-**Atualizado:** 2026-06-11 · **Iteração atual:** M5 → M6.
+**Atualizado:** 2026-06-13 · **Iteração atual:** M6 → M7 (Fase 1 implementada).
 **Fontes da verdade (imutáveis):** [spec.md](spec.md) v0.4 · [plan.md](plan.md) v1.3 · [tasks.md](tasks.md) v1.3.
 
 Este documento é o **log rastreável** do que já foi executado. Não altera as fontes da verdade —
@@ -17,15 +17,16 @@ apenas registra implementação, cobertura de requisitos e artefatos. Decisões 
 | **M4** — histórico + comparação (E6) | ✅ concluído |
 | **M5** — robustez de escala + streaming + ganchos Fase 2 | ✅ concluído |
 | **M6** — observabilidade + meta-avaliação (E9) | ✅ concluído |
-| **M7** — suíte de aceite fechada (E10 completo) | ⏳ próximo |
+| **M7** — suíte de aceite fechada (E10 completo) | ✅ concluído |
 
-Validação atual: `ruff check .` limpo · `mypy src` limpo (69 arquivos) · **165 testes verdes**
-(`py -m pytest -q`; +4 Postgres gated por `AVALIA_PG_DSN`). Gate leve `-m fast`: 143 verdes,
-smoke de meta-avaliação **deselecionado** (fora do CI crítico).
-Smoke M6: `SpanCollector` registra spans por nó (latência) sem exigir LangSmith — laudo gera
-mesmo com observabilidade ausente (MS-10); harness offline computa concordância de veredito por
-dimensão (MS-04), de classificação (MS-09) e calibração de confiança (MS-08) sobre um seed
-sintético, com a calibração significativa declarada bloqueada por D-03/D-04.
+**Fase 1 (avaliação estática) implementada de ponta a ponta** (M0–M7). Todos os CA-01..15 e
+CB-01..10 têm teste de aceite explícito (black-box), além das guardas contínuas (RNF-05) e do CI.
+
+Validação atual: `ruff check .` limpo · `ruff format --check .` limpo · `mypy src` limpo (69
+arquivos) · **191 testes verdes** (`py -m pytest -q`; +4 Postgres gated por `AVALIA_PG_DSN`). Gate
+leve `-m fast`: 169 verdes, smoke de meta-avaliação **deselecionado** (fora do CI crítico).
+Suíte de aceite M7 (`tests/acceptance/`): 26 casos (CA/CB) + reprodutibilidade em dois regimes
+(determinístico bit-idêntico e juiz estável por faixa, ancorado em fato).
 
 ---
 
@@ -276,6 +277,35 @@ enforcement mecânico no PR.
 
 ---
 
+## 2h. M7 — Suíte de aceite fechada (E10 completo)
+
+Fecha o Épico E10: um teste de aceite **explícito e black-box** por CA-01..15 e CB-01..10,
+mais reprodutibilidade (T-1005) em dois regimes. Encerra a implementação da Fase 1.
+
+| Tarefa | Entrega | Arquivos | Requisitos |
+|---|---|---|---|
+| **T-1004** | matriz de aceite caso→teste (26 testes) sobre o grafo | `tests/acceptance/test_acceptance_matrix.py` | CA-01..15, CB-01..10 |
+| **T-1005** | reprodutibilidade: regime A (determinístico bit-idêntico) + regime B (juiz estável por faixa, fato-âncora) | `tests/acceptance/test_reproducibility.py` | RNF-01, RF-26; CA-14 |
+| **(RF-01/CB-01)** | inventário completo dos 6 componentes (só código-fonte bloqueia; opcionais ausentes registrados) | `ingest.py` | RF-01, CB-01 |
+
+**Única mudança de comportamento do M7:** `ingest_validate` passou a inventariar os seis
+componentes do pacote (código-fonte, prompts, configuração, harness, instrumentação, metadados) por
+heurística declarada sobre o TEXTO dos artefatos — mantendo **só o código-fonte como bloqueante**
+(decisão de M1). Assim o laudo registra os opcionais ausentes (CB-01), honrando RF-01 por inteiro.
+O resto do M7 é teste: a maioria dos CA/CB já passava com o comportamento de M1–M6; a suíte os torna
+explícitos e auditáveis num só lugar.
+
+**Aceite coberto no M7:** CA-12 (prova comportamental de não-execução: alvo com `raise` no topo do
+módulo → o run conclui, logo o alvo nunca foi executado — RNF-05); CA-14 (dois regimes); CB-04
+(divergência reconciliada registrada); e os demais CA/CB consolidados.
+
+**Decisão do M7:** os testes de aceite são **black-box** (constroem o grafo, invocam, asseguram
+sobre o `EvaluationReport`/status), distintos dos testes de unidade — uma camada de garantia a mais,
+não substituição. Juízes mockados (`ScriptedGateway`/`ExhaustedGateway`) cobrem divergência e
+fallback sem modelo real.
+
+---
+
 ## 3. Cobertura requisito → artefato no M0 (espelha tasks §14, sem editar o original)
 
 | Requisito | Artefato que satisfaz (M0) |
@@ -350,15 +380,19 @@ futura precise contrariar uma decisão, o protocolo é **PARAR e confirmar** (n�
 
 ---
 
-## 7. Próximo passo — M7 (suíte de aceite fechada, Épico E10 completo)
+## 7. Próximo passo — Fase 1 implementada (M0–M7 concluídos)
 
-Fechar a suíte de aceite: garantir um teste explícito por CA-01..15 e CB-01..10 (tasks §8/§12),
-mapeando caso→teste, e a guarda contínua RNF-05 (T-1006, já ativa). A calibração significativa de
-meta-avaliação permanece BLOQUEADA por D-03 (dataset curado) e D-04 (primeiro lote) — dependência
-externa, não código pendente. **tree-sitter** (segundo extrator) segue deferido para uma iteração
-futura, via a interface plugável (T-101).
+A Fase 1 (avaliação estática) está implementada de ponta a ponta e com suíte de aceite fechada.
+Itens em aberto são **dependências externas** ou roadmap, não código pendente do AVALIA:
+- **Calibração de meta-avaliação** BLOQUEADA por **D-03** (dataset curado por humanos) e **D-04**
+  (primeiro lote) — o pipeline de medição já existe (M6); falta o dado de referência.
+- **tree-sitter** (2º extrator, TS/JS) deferido — entra pela interface plugável (T-101) sem tocar
+  TSM/avaliadores.
+- **Empacotamento de uso (MVP)** — uma porta de entrada (CLI/serviço) que varra o repositório de um
+  alvo real e gere o laudo ainda não existe; o avaliador roda hoje via `build_avalia_graph().invoke`.
+- **Fase 2** (avaliação dinâmica) permanece fora de escopo (S-05); os ganchos (T-804) estão prontos.
 
-### Decisões/atritos acumulados (M1–M6)
+### Decisões/atritos acumulados (M1–M7)
 - **Extrator `ast`-only** (escolha do usuário); tree-sitter deferido via a interface plugável.
 - **Tracing aplicado no `invoke` (callbacks), não na construção do grafo** — `build_avalia_graph`
   permanece sem dependência de observabilidade; LangSmith é opcional e nunca bloqueia o laudo.
