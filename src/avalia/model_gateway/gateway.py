@@ -55,15 +55,21 @@ def _default_client_factory(ref: ModelRef) -> Any:
     """Constrói o cliente LangChain de forma PREGUIÇOSA (import só no acesso real).
 
     Nos testes o factory é injetado/mockado → langchain nem precisa estar instalado.
+    Os kwargs vão num `dict[str, Any]` de propósito: a assinatura tipada de `ChatAnthropic`/
+    `ChatOpenAI` varia entre versões do pacote (model vs. model_name, args nomeados obrigatórios),
+    e acoplar o type-check a ela quebra o CI a cada bump. Desempacotar `**params` mantém o
+    runtime idêntico e o mypy estável em qualquer versão instalada.
     """
+    params: dict[str, Any] = {"model": ref.model, "temperature": ref.temperature}
     if ref.backend is Backend.ANTHROPIC:
         from langchain_anthropic import ChatAnthropic
 
-        return ChatAnthropic(model=ref.model, temperature=ref.temperature)
+        return ChatAnthropic(**params)
     # OpenRouter expõe API compatível com OpenAI (alcance cross-provider — Kimi etc.).
     from langchain_openai import ChatOpenAI
 
-    return ChatOpenAI(model=ref.model, temperature=ref.temperature, base_url=ref.base_url)
+    params["base_url"] = ref.base_url
+    return ChatOpenAI(**params)
 
 
 class ModelGateway:
