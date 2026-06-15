@@ -1,0 +1,69 @@
+# AVALIA
+
+**Avaliador ESTÁTICO de sistemas multiagentes de IA (Fase 1).** O AVALIA recebe os artefatos de um
+sistema-alvo (código, prompts, config, harness) e produz um **laudo técnico** com pontuação por
+dimensão, veredito, nível de confiança e recomendações priorizadas — **sem nunca executar o alvo**
+(RNF-05/S-04). O alvo é apenas entrada, lido como texto.
+
+Fontes da verdade: [spec.md](spec.md) · [plan.md](plan.md) · [tasks.md](tasks.md) ·
+log de execução em [PROGRESS.md](PROGRESS.md).
+
+## Instalação
+
+Requer Python 3.12.
+
+```bash
+pip install -e .            # núcleo
+pip install -e ".[dev]"     # + lint/tipos/testes
+```
+
+## Uso (MVP)
+
+Aponte o AVALIA para o diretório do sistema-alvo:
+
+```bash
+avalia caminho/para/o/alvo --target-id meu-sistema --version v1
+# ou, sem instalar o script:
+python -m avalia caminho/para/o/alvo
+```
+
+Gera `avalia-out/laudo.md` (humano) e `avalia-out/laudo.json` (máquina) e imprime um resumo
+(veredito, score, classificação, achados, recomendações).
+
+### Opções
+
+| Opção | Efeito |
+|---|---|
+| `--target-id ID` | Identificador do alvo (default: nome do diretório); vincula versões no histórico. |
+| `--version V` | Versão/tag avaliada (default: `0`). |
+| `-o, --out DIR` | Diretório de saída (default: `avalia-out`). |
+| `--format {both,md,json}` | Formato(s) do laudo gravado(s) (default: `both`). |
+| `--llm` | Liga os juízes-LLM via `ModelGateway` (default: **determinístico**, sem custo/credencial). |
+| `--max-files N` | Teto de arquivos analisados a fundo; acima dele o resto é amostrado (laudo parcial honesto). |
+
+**Modo determinístico (padrão):** roda só as checagens estáticas (estrutura, controles de custo,
+loops, retry/fallback, etc.) — reproduzível e sem chamadas de modelo. **`--llm`** acrescenta os
+julgamentos semânticos (clareza de prompt, anti-injeção, grounding…) via `ModelGateway`
+(default Opus→Sonnet, configurável por env — `AVALIA_DEFAULT_PRIMARY_MODEL`, `AVALIA_DEFAULT_BACKEND`,
+etc.); requer `ANTHROPIC_API_KEY` (ou `OPENROUTER_API_KEY`). Substituições de modelo são sempre
+declaradas no laudo (RNF-12).
+
+## Garantias
+
+- **Nunca executa o alvo** (RNF-05/S-04): só leitura estática (`ast`). Há hook + teste-guarda
+  contínuos que falham o build se algum caminho introduzir execução/importação do alvo.
+- **Acesso a modelo só via `ModelGateway`** (RNF-06/RNF-12), nunca slugs hardcoded.
+- **Reproduzibilidade:** checagens determinísticas são bit-idênticas entre execuções; o juízo-LLM é
+  estável por faixa (RNF-01).
+
+## Desenvolvimento
+
+```bash
+python -m pytest -q             # suíte completa
+python -m pytest -m fast -q     # gate rápido
+python -m ruff check . && python -m ruff format --check .
+python -m mypy src
+```
+
+CI (GitHub Actions) enforça esses gates em todos os PRs, com Postgres em serviço para os testes de
+persistência.

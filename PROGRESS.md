@@ -1,6 +1,6 @@
 # AVALIA — Registro de Execução (Fase 4 / Implementação)
 
-**Atualizado:** 2026-06-13 · **Iteração atual:** M6 → M7 (Fase 1 implementada).
+**Atualizado:** 2026-06-15 · **Iteração atual:** M7 concluído + porta de entrada MVP (CLI).
 **Fontes da verdade (imutáveis):** [spec.md](spec.md) v0.4 · [plan.md](plan.md) v1.3 · [tasks.md](tasks.md) v1.3.
 
 Este documento é o **log rastreável** do que já foi executado. Não altera as fontes da verdade —
@@ -21,6 +21,13 @@ apenas registra implementação, cobertura de requisitos e artefatos. Decisões 
 
 **Fase 1 (avaliação estática) implementada de ponta a ponta** (M0–M7). Todos os CA-01..15 e
 CB-01..10 têm teste de aceite explícito (black-box), além das guardas contínuas (RNF-05) e do CI.
+
+**Porta de entrada de uso (MVP, fora do conjunto T-xxx — empacotamento, não muda escopo/Spec):**
+`avalia <caminho-do-alvo>` (ou `python -m avalia ...`) varre o repositório do alvo (`loader.py`, só
+leitura de texto — pula `.git`/caches/`node_modules`/binários/grandes), roda o grafo e grava
+`laudo.md`/`laudo.json` + resumo no stdout. Determinístico por padrão; `--llm` liga o `ModelGateway`.
+Ver [README.md](README.md). Arquivos: `src/avalia/{loader,cli,__main__}.py`, `[project.scripts]`;
+testes `tests/cli/`. Nada executa o alvo (RNF-05) — a guarda contínua cobre os novos módulos.
 
 Validação atual: `ruff check .` limpo · `ruff format --check .` limpo · `mypy src` limpo (69
 arquivos) · **191 testes verdes** (`py -m pytest -q`; +4 Postgres gated por `AVALIA_PG_DSN`). Gate

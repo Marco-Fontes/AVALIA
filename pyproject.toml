@@ -26,6 +26,10 @@ dependencies = [
 observability = ["langsmith>=0.1"]
 dev = ["pytest>=8", "ruff>=0.6", "mypy>=1.11"]
 
+[project.scripts]
+# Porta de entrada de uso (MVP): `avalia <caminho-do-alvo>`.
+avalia = "avalia.cli:main"
+
 [tool.hatch.build.targets.wheel]
 packages = ["src/avalia"]
 
