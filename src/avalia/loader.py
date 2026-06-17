@@ -45,6 +45,20 @@ def _is_skippable_dir(rel_parts: tuple[str, ...]) -> bool:
     return any(part in _SKIP_DIRS for part in rel_parts)
 
 
+def _is_test_fixture(rel_parts: tuple[str, ...]) -> bool:
+    """Diretório de FIXTURES sob `tests/`: dados/alvos sintéticos (muitas vezes adversariais —
+    loop sem teto, prompts RAG, contradições), NÃO a lógica do sistema. Avaliá-los poluiria o
+    laudo. Mantém `tests/` no escopo (harness — RF-DIM-Q1), mas exclui os fixtures sintéticos.
+    Conservador: só pula `fixtures` que esteja DENTRO de um diretório de teste."""
+    lower = [p.lower() for p in rel_parts]
+    for i, part in enumerate(lower):
+        if part in ("fixtures", "fixture", "__fixtures__") and any(
+            t in ("test", "tests") for t in lower[:i]
+        ):
+            return True
+    return False
+
+
 def read_target_directory(root: str | Path, *, max_bytes: int = _MAX_BYTES) -> dict[str, str]:
     """Lê os arquivos-texto do diretório-alvo → `{caminho_relativo: conteúdo}` (RNF-05: só texto).
 
@@ -62,7 +76,8 @@ def read_target_directory(root: str | Path, *, max_bytes: int = _MAX_BYTES) -> d
         if not path.is_file():
             continue
         rel = path.relative_to(base)
-        if _is_skippable_dir(rel.parts[:-1]):
+        dir_parts = rel.parts[:-1]
+        if _is_skippable_dir(dir_parts) or _is_test_fixture(dir_parts):
             continue
         try:
             if path.stat().st_size > max_bytes:

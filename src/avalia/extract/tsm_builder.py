@@ -25,11 +25,90 @@ from avalia.extract.registry import get_extractor, language_for_path
 
 _ALL_DIMENSIONS = list(Dimension)
 
+# Documentação/dados legitimamente não-analisáveis: NÃO são código/config a inspecionar, logo
+# não devem disparar laudo PARCIAL (PLANO-MELHORIAS §3 — "sem amostragem espúria"). Ficam fora
+# tanto de `fully_analyzed` quanto de `sampled`. Já a fonte de linguagem não suportada (ex.: .ts)
+# permanece em `sampled` (honestidade: código real que não conseguimos ler — TS/JS adiado, #1).
+_DOC_EXTENSIONS = (
+    ".md",
+    ".markdown",
+    ".rst",
+    ".txt",
+    ".text",
+    ".log",
+    ".csv",
+    ".tsv",
+    ".html",
+    ".htm",
+    ".lock",
+)
+_DOC_BASENAMES = frozenset(
+    {
+        "license",
+        "license.txt",
+        "license.md",
+        "copying",
+        "authors",
+        "notice",
+        "codeowners",
+        ".gitignore",
+        ".gitattributes",
+        ".dockerignore",
+        ".editorconfig",
+        # Lock files (mesmo com extensão de config): dados gerados, não config a avaliar (§10).
+        "package-lock.json",
+        "poetry.lock",
+        "yarn.lock",
+        "cargo.lock",
+        "composer.lock",
+        "pipfile.lock",
+        "pnpm-lock.yaml",
+    }
+)
+
+
+def _basename(path: str) -> str:
+    return path.replace("\\", "/").rsplit("/", 1)[-1].lower()
+
+
+def _is_ignorable_path(path: str) -> bool:
+    """Documentação/dados não-analisáveis — fora da análise e SEM disparar parcial."""
+    base = _basename(path)
+    return base in _DOC_BASENAMES or base.endswith(_DOC_EXTENSIONS)
+
 
 def _is_harness_path(path: str) -> bool:
     p = path.replace("\\", "/").lower()
     base = p.rsplit("/", 1)[-1]
     return base.startswith("test_") or base.endswith("_test.py") or "/tests/" in p or "/test/" in p
+
+
+# T4.5 — harness reconhecido por CONFIG de teste / orientação de uso, não só por `test_*`.
+_HARNESS_FILES = frozenset({"conftest.py", "tox.ini", "pytest.ini", "noxfile.py"})
+
+
+def _file_signals_harness(path: str, source: str) -> bool:
+    """Sinais de harness em arquivos de config/CI (sinergia com a Frente 1: já parseados)."""
+    base = _basename(path)
+    p = path.replace("\\", "/").lower()
+    if base in _HARNESS_FILES:
+        return True
+    if base == "pyproject.toml" and ("[tool.pytest" in source or "[tool.tox" in source):
+        return True
+    if base == "setup.cfg" and ("[tool:pytest]" in source or "[pytest]" in source):
+        return True
+    if ".github/workflows/" in p and p.endswith((".yml", ".yaml")):
+        return "pytest" in source.lower() or "unittest" in source.lower()
+    return False
+
+
+def _detect_harness(files: dict[str, str]) -> bool:
+    """RF-DIM-Q1: existe harness de teste/avaliação? Por caminho (`test_*`/`tests/`) OU por
+    config de teste (`pyproject [tool.pytest]`, `tox.ini`, `conftest.py`, workflows com pytest)."""
+    return any(
+        _is_harness_path(path) or _file_signals_harness(path, source)
+        for path, source in files.items()
+    )
 
 
 def build_tsm(files: dict[str, str], config: EvaluatorConfig | None = None) -> TargetStaticModel:
@@ -50,8 +129,15 @@ def build_tsm(files: dict[str, str], config: EvaluatorConfig | None = None) -> T
         to_analyze = readable
 
     by_lang: dict[str, dict[str, str]] = {}
-    best_effort: list[str] = []  # arquivos sem extrator dedicado (não analisados a fundo)
+    best_effort: list[str] = []  # fonte sem extrator dedicado (ex.: TS/JS adiado) → amostrada
+    ignored_docs: list[str] = []  # documentação/dados não-analisáveis → não dispara parcial
     for path, source in to_analyze.items():
+        # Ignoráveis primeiro: docs e LOCK FILES (mesmo com extensão de config, ex.:
+        # package-lock.json / pnpm-lock.yaml) saem antes do roteamento ao extrator, senão a
+        # extensão de config os capturaria e parsearia como config (ruído — §10).
+        if _is_ignorable_path(path):
+            ignored_docs.append(path)
+            continue
         lang = language_for_path(path)
         if lang and get_extractor(lang):
             by_lang.setdefault(lang, {})[path] = source
@@ -96,7 +182,12 @@ def build_tsm(files: dict[str, str], config: EvaluatorConfig | None = None) -> T
             "teto de cobertura (max_analyzed_files)"
         )
     if best_effort:
-        reasons.append("arquivos sem extrator dedicado tratados como best-effort")
+        reasons.append("arquivos de linguagem sem extrator dedicado tratados como best-effort")
+    if ignored_docs:
+        reasons.append(
+            f"{len(ignored_docs)} arquivo(s) de documentação/dados não-analisáveis ignorado(s) "
+            "(não contam como amostragem — não disparam laudo parcial)"
+        )
     coverage = AnalysisCoverage(
         fully_analyzed=analyzed,
         sampled=sampled,
@@ -117,7 +208,7 @@ def build_tsm(files: dict[str, str], config: EvaluatorConfig | None = None) -> T
         configs=merged.configs,
         error_handling=merged.error_handling,
         shared_state=merged.shared_state,
-        has_harness=any(_is_harness_path(p) for p in files),
+        has_harness=_detect_harness(files),
         coverage=coverage,
         readability=readability,
     )

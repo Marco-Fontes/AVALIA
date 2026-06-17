@@ -38,6 +38,11 @@ class ModelRef(BaseModel):
     model: str = Field(min_length=1, description="Slug do modelo (config, nunca constante).")
     base_url: str | None = None
     temperature: float = Field(default=0.0, ge=0.0)  # RNF-01: juiz determinístico
+    # T3.1 — controle de custo (RF-DIM-C2) e performance (RF-DIM-P2) das chamadas de JUÍZO do
+    # próprio AVALIA: limite de tokens e timeout. DADO de config (RNF-06), sobrescrevível por env
+    # no gateway. Aplica a correção apontada no dogfood (sem_limite_tokens/sem_timeout).
+    max_tokens: int | None = Field(default=1024, gt=0)
+    timeout_s: float | None = Field(default=60.0, gt=0)
 
 
 class RetryPolicy(BaseModel):
@@ -96,6 +101,15 @@ class EvaluatorConfig(BaseModel):
     # Teto determinístico de cobertura na indexação (T-105/RF-12): acima dele, os arquivos de
     # menor sinal são amostrados (não analisados a fundo) e declarados em AnalysisCoverage.
     max_analyzed_files: int | None = Field(default=None, gt=0)
+    # Teto NOMINAL da "prontidão estática" (Fase 1). DADO de config (RNF-06), não constante
+    # espalhada. O motor determinístico trava o agregado em ~90 (base 90 / trajetória 85); a
+    # faixa 90–100 fica reservada à avaliação dinâmica (Fase 2). Apenas EXIBIDO — não muda o
+    # cálculo nem as faixas/veredito (PLANO-MELHORIAS §4 / decisão 2; RNF-04, §4.2.6).
+    static_ceiling: int = Field(default=90, ge=0, le=100)
+    # T4.4 — calibração do parcial: fração de arquivos amostrados a partir da qual o laudo parcial
+    # rebaixa a confiança de TODAS as dimensões. Abaixo dela, só são rebaixadas as dimensões cujas
+    # evidências caem em arquivos amostrados (amostragem de 1 arquivo secundário não derruba tudo).
+    partial_significant_fraction: float = Field(default=0.25, ge=0.0, le=1.0)
     node_models: dict[str, NodeModelConfig] = Field(default_factory=dict)
     divergence: DivergenceConfig = DivergenceConfig()
 

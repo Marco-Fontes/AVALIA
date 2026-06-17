@@ -79,6 +79,11 @@ def _summary(report: Any, status: RunStatus, mode: str, out_paths: list[Path]) -
     lines.append(
         f"  Veredito : {h.verdict.value}   Score: {h.score}/100   Confiança: {h.confidence.value}"
     )
+    # Frente 2: o teto da Fase 1 é ~{static_ceiling}; a faixa até 100 é reservada à Fase 2.
+    lines.append(
+        f"  Prontidão estática: {h.score}/100 "
+        f"(teto Fase 1 ~{h.static_ceiling}; {h.static_ceiling}-100 = Fase 2 dinâmica)"
+    )
     cls = h.classification
     lines.append(
         f"  Classificação: {cls.topology.value} "

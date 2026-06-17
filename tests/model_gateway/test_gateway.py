@@ -103,3 +103,37 @@ def test_structured_output_degrades_declared_when_unsupported():
     gw = _gw(factory=_DumbClient)
     with pytest.raises(StructuredOutputUnsupported, match="RNF-12"):
         gw.with_structured_output("juiz_trajetoria", ModelRole.PRIMARY, {"type": "object"})
+
+
+def test_default_ref_carries_cost_and_timeout_controls():
+    # T3.1 — RF-DIM-C2/P2: o ModelRef default já traz max_tokens/timeout (controle de custo/perf).
+    ref = _gw().resolve("juiz_trajetoria", ModelRole.PRIMARY)
+    assert ref.max_tokens == 1024
+    assert ref.timeout_s == 60.0
+
+
+def test_env_overrides_cost_and_timeout_controls():
+    gw = _gw(env={"AVALIA_DEFAULT_MAX_TOKENS": "256", "AVALIA_DEFAULT_TIMEOUT": "15"})
+    ref = gw.resolve("n", ModelRole.PRIMARY)
+    assert ref.max_tokens == 256
+    assert ref.timeout_s == 15.0
+
+
+def test_invalid_env_controls_fall_back_to_defaults():
+    gw = _gw(env={"AVALIA_DEFAULT_MAX_TOKENS": "abc", "AVALIA_DEFAULT_TIMEOUT": "-3"})
+    ref = gw.resolve("n", ModelRole.PRIMARY)
+    assert ref.max_tokens == 1024  # inválido → default
+    assert ref.timeout_s == 60.0
+
+
+def test_client_factory_receives_token_and_timeout_params():
+    # As chaves de dict tornam o controle visível à análise estática (T4.2) e configuram a chamada.
+    captured: dict[str, object] = {}
+
+    def factory(ref: ModelRef):
+        captured["max_tokens"] = ref.max_tokens
+        captured["timeout_s"] = ref.timeout_s
+        return _FakeClient(ref)
+
+    _gw(factory=factory).get_client("juiz_trajetoria", ModelRole.PRIMARY)
+    assert captured == {"max_tokens": 1024, "timeout_s": 60.0}

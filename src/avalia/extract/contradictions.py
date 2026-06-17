@@ -20,7 +20,7 @@ from avalia.domain.contracts import Finding
 from avalia.domain.enums import Urgency
 from avalia.domain.evidence import EvidenceRef
 from avalia.domain.taxonomy import FindingType
-from avalia.domain.tsm import TargetStaticModel
+from avalia.domain.tsm import ConfigItem, TargetStaticModel
 
 # Slug de modelo: contém dígito, '-' ou '/' (ex.: "gpt-4o", "claude-opus", "claude-3-5").
 # Um identificador puro ("MODEL_NAME") NÃO casa → é tratado como referência a config, não slug.
@@ -40,21 +40,40 @@ def _looks_like_slug(expr: str) -> bool:
 
 
 def _model_contradictions(tsm: TargetStaticModel) -> list[Finding]:
+    """Contradição modelo declarado≠usado, escopada ao MESMO arquivo (precisão > recall).
+
+    Comparar slugs declarados e usados ACROSS-FILE gera falso positivo (ex.: um default/constante
+    de modelo num módulo vs. slugs de exemplo em testes de outro módulo). A contradição interna
+    (CB-08) que nos interessa é local: uma config e uma chamada divergentes no MESMO arquivo.
+    Mantém a heurística conservadora prometida nesta camada (§10 Riscos).
+    """
     model_cfgs = [c for c in tsm.configs if "model" in c.key.lower()]
-    declared_slugs = {c.value_expr for c in model_cfgs if _looks_like_slug(c.value_expr)}
-    declared_keys = {c.key for c in model_cfgs}
-    if not declared_slugs or not model_cfgs:
+    if not model_cfgs:
         return []
 
+    # Agrupa por arquivo: só comparamos declaração×uso dentro do mesmo arquivo.
+    cfgs_by_file: dict[str, list[ConfigItem]] = {}
+    for c in model_cfgs:
+        cfgs_by_file.setdefault(c.evidence.file_path, []).append(c)
+
     findings: list[Finding] = []
-    seen: set[str] = set()
+    seen: set[tuple[str, str]] = set()
     for ma in tsm.model_assignments:
-        expr = ma.model_expr
-        if expr in declared_keys:  # referencia a config → coerente
+        file_path = ma.evidence.file_path
+        file_cfgs = cfgs_by_file.get(file_path)
+        if not file_cfgs:
             continue
-        if _looks_like_slug(expr) and expr not in declared_slugs and expr not in seen:
-            seen.add(expr)
-            cfg = model_cfgs[0]
+        declared_slugs = {c.value_expr for c in file_cfgs if _looks_like_slug(c.value_expr)}
+        declared_keys = {c.key for c in file_cfgs}
+        if not declared_slugs:
+            continue
+        expr = ma.model_expr
+        if expr in declared_keys:  # referencia a config do mesmo arquivo → coerente
+            continue
+        key = (file_path, expr)
+        if _looks_like_slug(expr) and expr not in declared_slugs and key not in seen:
+            seen.add(key)
+            cfg = file_cfgs[0]
             findings.append(
                 Finding(
                     finding_type=FindingType.CONTRADICAO_MODELO_CONFIG,
@@ -64,9 +83,9 @@ def _model_contradictions(tsm: TargetStaticModel) -> list[Finding]:
                         f"config '{cfg.key}' ({', '.join(sorted(declared_slugs))})."
                     ),
                     reasoning=(
-                        "A configuração e o código discordam sobre qual modelo é usado; a "
-                        "config declara um modelo, mas a chamada referencia outro slug literal "
-                        "(CB-08). Reduz a confiança das dimensões afetadas."
+                        "A configuração e o código discordam sobre qual modelo é usado no mesmo "
+                        "arquivo; a config declara um modelo, mas a chamada referencia outro slug "
+                        "literal (CB-08). Reduz a confiança das dimensões afetadas."
                     ),
                     evidence=[ma.evidence, cfg.evidence],  # ambos os lados (RNF-07)
                 )

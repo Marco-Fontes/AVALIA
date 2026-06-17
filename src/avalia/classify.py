@@ -14,14 +14,55 @@ from avalia.domain.contracts import TargetClassification
 from avalia.domain.enums import Confidence, Topology
 from avalia.domain.tsm import TargetStaticModel
 
-_RAG_HINTS = ("context", "contexto", "fonte", "document", "retriev", "rag", "citação", "citacao")
+# T4.3 — classificador robusto a META-vocabulário (corrige `tipo=rag` espúrio do dogfood).
+# RAG só é inferido por ESTRUTURA de recuperação (nó/ferramenta/aresta) OU por ≥2 GRUPOS de
+# vocabulário em prompts — nunca por 1 palavra-chave isolada. Termos genéricos como "index"
+# (que casa `index_artifact`) são deliberadamente EXCLUÍDOS dos sinais estruturais (RF-06; MS-09).
+_RAG_STRUCT = (
+    "retriev",
+    "vector",
+    "embedding",
+    "vectorstore",
+    "vectordb",
+    "faiss",
+    "chroma",
+    "pinecone",
+    "weaviate",
+    "qdrant",
+    "knn",
+)
+# Grupos de vocabulário (sinônimos contam como 1 grupo, para não inflar a contagem).
+_RAG_VOCAB_GROUPS: tuple[tuple[str, ...], ...] = (
+    ("context", "contexto"),
+    ("fonte", "source"),
+    ("document",),
+    ("cita",),  # citação/citacao/cite
+    ("grounding", "fundament"),
+    ("recuper", "retriev"),
+    ("rag",),
+)
+
+
+def _structural_blob(tsm: TargetStaticModel) -> str:
+    """Nomes/símbolos estruturais (não prosa): ferramentas, agentes e arestas."""
+    parts = [t.name for t in tsm.tools]
+    parts += [a.name for a in tsm.agents]
+    parts += [f"{e.source} {e.target}" for e in tsm.edges]
+    return " ".join(parts).lower()
+
+
+def _rag_vocab_groups(tsm: TargetStaticModel) -> int:
+    blob = " ".join(p.text.lower() for p in tsm.prompts)
+    return sum(1 for group in _RAG_VOCAB_GROUPS if any(term in blob for term in group))
 
 
 def _infer_type(tsm: TargetStaticModel) -> str | None:
+    """Tipo funcional do alvo (RF-06). Inferência fraca (vocabulário-só, 1 sinal) → None, para
+    `select_weights` cair no perfil neutro (RF-16) em vez de aplicar pesos de RAG indevidos."""
     if tsm.tools:
         return "agente_de_acao"
-    blob = " ".join(p.text.lower() for p in tsm.prompts)
-    if any(h in blob for h in _RAG_HINTS):
+    has_retrieval_structure = any(h in _structural_blob(tsm) for h in _RAG_STRUCT)
+    if has_retrieval_structure or _rag_vocab_groups(tsm) >= 2:
         return "rag"
     return None
 

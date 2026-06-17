@@ -20,6 +20,7 @@ from avalia.judge.framework import (
     DATA_END,
     DATA_START,
     Judge,
+    JudgeCache,
     JudgeVerdict,
     ModelUnavailableError,
     TransientModelError,
@@ -157,3 +158,53 @@ def test_exhausted_fallback_signals_partial():
     contrib = _assess(_judge(gw), target_content={"main.py": "x=1"}, angles=("cetico",))
     assert contrib.partial is True
     assert contrib.opinions == []
+
+
+# ---------- T3.2 (cache de chamadas de juiz / RF-DIM-C2) ----------
+
+
+def test_cache_memoizes_identical_judge_call():
+    counter = {"n": 0}
+
+    def model():
+        counter["n"] += 1
+        return _verdict(42)
+
+    cache = JudgeCache()
+    gw = _FakeGateway(primary=model)
+    content = {"main.py": "x = 1"}
+    c1 = Judge(gw, "juiz_trajetoria", cache=cache)
+    c2 = Judge(gw, "juiz_trajetoria", cache=cache)
+    r1 = _assess(c1, target_content=content, angles=("cetico",))
+    r2 = _assess(c2, target_content=content, angles=("cetico",))
+    assert counter["n"] == 1  # 2ª avaliação idêntica veio do cache (modelo chamado 1x)
+    assert r1.opinions[0].score == r2.opinions[0].score == 42
+
+
+def test_cache_distinguishes_different_content():
+    counter = {"n": 0}
+
+    def model():
+        counter["n"] += 1
+        return _verdict(42)
+
+    cache = JudgeCache()
+    gw = _FakeGateway(primary=model)
+    judge = Judge(gw, "juiz_trajetoria", cache=cache)
+    _assess(judge, target_content={"a.py": "x = 1"}, angles=("cetico",))
+    _assess(judge, target_content={"a.py": "y = 2"}, angles=("cetico",))
+    assert counter["n"] == 2  # conteúdo diferente → não reusa
+
+
+def test_no_cache_calls_model_each_time():
+    counter = {"n": 0}
+
+    def model():
+        counter["n"] += 1
+        return _verdict(42)
+
+    gw = _FakeGateway(primary=model)
+    content = {"main.py": "x = 1"}
+    _assess(Judge(gw, "juiz_trajetoria"), target_content=content, angles=("cetico",))
+    _assess(Judge(gw, "juiz_trajetoria"), target_content=content, angles=("cetico",))
+    assert counter["n"] == 2  # sem cache (default) → chama o modelo nas duas

@@ -28,6 +28,14 @@ def render_markdown(report: EvaluationReport) -> str:
         )
         lines.append("")
     lines.append(f"- **Veredito:** {h.verdict.value} · **Score:** {h.score}/100")
+    # Frente 2: comunica honestamente o teto da prontidão estática (não muda cálculo/faixas).
+    headroom = max(0, 100 - h.static_ceiling)
+    lines.append(
+        f"- **Prontidão estática (Fase 1):** {h.score}/100 — teto da análise estática "
+        f"≈ **{h.static_ceiling}**; a faixa {h.static_ceiling}–100 só é atingível com avaliação "
+        f'dinâmica (Fase 2). *Não é "reprovado": ~{headroom} pontos são headroom reservado '
+        "à Fase 2.*"
+    )
     lines.append(f"- **Confiança geral:** {h.confidence.value}")
     lines.append(
         f"- **Classificação:** {h.classification.topology.value} "

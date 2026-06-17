@@ -16,6 +16,8 @@ Rastreabilidade: RF-10, RF-20, RNF-01, RNF-02, RNF-12; plan §9 R8/R9.
 
 from __future__ import annotations
 
+import hashlib
+import json
 from collections.abc import Mapping, Sequence
 from typing import Any, Protocol
 
@@ -58,6 +60,27 @@ class JudgeVerdict(BaseModel):
     finding_statement: str | None = None
 
 
+class JudgeCache:
+    """T3.2 — memoiza o resultado do juízo por (tipo de nó, conteúdo). Chamadas idênticas não
+    repetem o modelo → controle de custo (RF-DIM-C2). Seguro sob RNF-01: `temperature=0` +
+    conteúdo idêntico ⇒ resultado determinístico, então reusar não altera o veredito. Em memória,
+    compartilhado por uma execução do grafo (criado em `build_avalia_graph`)."""
+
+    def __init__(self) -> None:
+        self._store: dict[str, tuple[JudgeVerdict, list[str]]] = {}
+
+    @staticmethod
+    def key(node_type: str, messages: list[dict[str, str]]) -> str:
+        payload = json.dumps([node_type, messages], sort_keys=True, ensure_ascii=False)
+        return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+    def get(self, key: str) -> tuple[JudgeVerdict, list[str]] | None:
+        return self._store.get(key)
+
+    def put(self, key: str, value: tuple[JudgeVerdict, list[str]]) -> None:
+        self._store[key] = value
+
+
 class GatewayLike(Protocol):
     """Interface mínima do gateway exigida pelo juiz (real ou mock)."""
 
@@ -74,9 +97,12 @@ def _reduce(conf: Confidence) -> Confidence:
 class Judge:
     """Juiz de uma dimensão. Acessa modelos só pelo gateway; nunca executa o alvo."""
 
-    def __init__(self, gateway: GatewayLike, node_type: str) -> None:
+    def __init__(
+        self, gateway: GatewayLike, node_type: str, *, cache: JudgeCache | None = None
+    ) -> None:
         self.gateway = gateway
         self.node_type = node_type
+        self.cache = cache  # T3.2: memoização opcional de chamadas de juízo (None → desativada)
 
     def _messages(
         self, *, rubric: Rubric, instruction: str, angle: str, target_content: Mapping[str, str]
@@ -93,7 +119,15 @@ class Judge:
         return [{"role": "system", "content": system}, {"role": "user", "content": user}]
 
     def _run_angle(self, messages: list[dict[str, str]]) -> tuple[JudgeVerdict, list[str]] | None:
-        """Política escalonada: retry mesmo modelo → re-prompt → fallback declarado."""
+        """Política escalonada: retry mesmo modelo → re-prompt → fallback declarado.
+
+        T3.2: se houver cache e o conteúdo já foi julgado, reusa sem chamar o modelo (RNF-01-safe).
+        """
+        cache_key = JudgeCache.key(self.node_type, messages) if self.cache is not None else None
+        if self.cache is not None and cache_key is not None:
+            cached = self.cache.get(cache_key)
+            if cached is not None:
+                return cached
         retry = self.gateway.retry_for(self.node_type)
         for role in (ModelRole.PRIMARY, ModelRole.FALLBACK):
             for _ in range(max(1, retry.max_attempts)):
@@ -113,7 +147,10 @@ class Judge:
                     if role is ModelRole.PRIMARY
                     else ["fallback de modelo aplicado (primário indisponível)"]
                 )
-                return result, subs
+                outcome = (result, subs)
+                if self.cache is not None and cache_key is not None:
+                    self.cache.put(cache_key, outcome)  # só resultados bem-sucedidos
+                return outcome
         return None  # (4) esgotado → parcial
 
     def assess(

@@ -31,7 +31,7 @@ from avalia.graph.budget import over_budget
 from avalia.graph.state import AvaliaState, BudgetState
 from avalia.ingest import ingest_validate
 from avalia.judge.contributors import build_contribution
-from avalia.judge.framework import GatewayLike
+from avalia.judge.framework import GatewayLike, JudgeCache
 from avalia.persistence.repository import ReportRepository, make_record
 from avalia.report.build import build_report
 from avalia.weights_select import select_weights
@@ -84,7 +84,9 @@ def _degrade_for_exhausted_fallback(dr: DimensionResult) -> DimensionResult:
 
 
 def make_dimension_node(
-    dimension: Dimension, gateway: GatewayLike | None = None
+    dimension: Dimension,
+    gateway: GatewayLike | None = None,
+    cache: JudgeCache | None = None,
 ) -> Callable[[AvaliaState], dict[str, Any]]:
     """Nó de avaliação de uma dimensão (fan-out). Se `gateway`, cabeia o juiz (T-302)."""
     evaluator = EVALUATORS[dimension]
@@ -92,7 +94,11 @@ def make_dimension_node(
     def node(state: AvaliaState) -> dict[str, Any]:
         tsm = state["tsm"]
         classification = state["classification"]
-        contribution = build_contribution(gateway, dimension, tsm) if gateway is not None else None
+        contribution = (
+            build_contribution(gateway, dimension, tsm, cache=cache)
+            if gateway is not None
+            else None
+        )
         result = evaluator(tsm, classification, contribution=contribution)
         update: dict[str, Any] = {}
         # CB-10: juiz esgotou o fallback de modelo → degrada a dimensão e sinaliza laudo parcial.
@@ -138,6 +144,7 @@ def route_after_weights(state: AvaliaState) -> list[str] | str:
 
 def make_detect_divergence_node(
     gateway: GatewayLike | None = None,
+    cache: JudgeCache | None = None,
 ) -> Callable[[AvaliaState], dict[str, Any]]:
     """N4 fan-in: detecta divergências e tenta reconciliar automaticamente (T-401/T-402)."""
 
@@ -148,7 +155,7 @@ def make_detect_divergence_node(
         pending: list[DivergenceCandidate] = []
         for candidate in candidates:
             record = (
-                reconcile_candidate(candidate, gateway=gateway, tsm=state["tsm"])
+                reconcile_candidate(candidate, gateway=gateway, tsm=state["tsm"], cache=cache)
                 if gateway is not None
                 else None
             )
@@ -225,7 +232,8 @@ def make_build_report_node(
         no_history = repository is not None and comparison is None
         budget = state.get("budget")
         budget_reasons = list(budget.reasons) if budget else []
-        partial = bool((budget and budget.partial) or state["tsm"].coverage.sampled)
+        budget_partial = bool(budget and budget.partial)
+        partial = bool(budget_partial or state["tsm"].coverage.sampled)
         report = build_report(
             classification=state["classification"],
             weights=state["effective_weights"],
@@ -239,6 +247,7 @@ def make_build_report_node(
             no_history_note=no_history,
             partial=partial,
             partial_reasons=budget_reasons,
+            budget_partial=budget_partial,
         )
         if repository is not None:
             repository.save(make_record(report, state["submission"].metadata))

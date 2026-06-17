@@ -84,7 +84,10 @@ def test_invalid_file_marked_unreadable_without_crash():
 def test_build_tsm_merges_and_is_immutable():
     tsm = build_tsm({"alvo/main.py": _MULTI, "README.md": "# não-python"})
     assert "alvo/main.py" in tsm.coverage.fully_analyzed
-    assert "README.md" in tsm.coverage.sampled  # best-effort (sem extrator)
+    # Documentação (.md) é ignorada: não analisada, mas também NÃO conta como amostragem
+    # espúria (Frente 1) → fora de `sampled` para não disparar laudo parcial.
+    assert "README.md" not in tsm.coverage.sampled
+    assert "README.md" not in tsm.coverage.fully_analyzed
     assert any(not loop.has_cap for loop in tsm.loops)
     with pytest.raises(ValidationError):
         tsm.loops = []  # frozen

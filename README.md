@@ -30,6 +30,15 @@ python -m avalia caminho/para/o/alvo
 Gera `avalia-out/laudo.md` (humano) e `avalia-out/laudo.json` (máquina) e imprime um resumo
 (veredito, score, classificação, achados, recomendações).
 
+> **Dica (laudo representativo):** aponte para a **raiz do repositório** do alvo, não só para
+> `src/`. A raiz inclui `tests/`, `pyproject.toml`, `tox.ini`, workflows de CI, etc. — sem isso o
+> AVALIA não encontra o harness de verificação e rebaixa a confiança da dimensão *Qualidade*
+> (RF-DIM-Q1). Ex.: `avalia .` em vez de `avalia src/`.
+
+> **Prontidão estática (Fase 1):** o score é exibido em `/100`, mas o teto da análise estática é
+> **≈ 90** — a faixa 90–100 só é atingível com avaliação **dinâmica** (Fase 2). Um `83/100` não é
+> "reprovado em 17 pontos": ~7 pontos são *headroom* reservado à Fase 2 (RNF-04).
+
 ### Opções
 
 | Opção | Efeito |

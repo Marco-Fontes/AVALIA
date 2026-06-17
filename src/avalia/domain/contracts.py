@@ -289,7 +289,13 @@ class VersionComparison(BaseModel):
 
 
 class ReportHeader(BaseModel):
-    """Bloco 4.2.1: classificação + perfil + veredito + confiança."""
+    """Bloco 4.2.1: classificação + perfil + veredito + confiança.
+
+    `static_ceiling` (Frente 2): teto NOMINAL da prontidão estática da Fase 1 (~90). Aditivo,
+    default 90 — não muda `score`/`verdict` nem as faixas (§4.2.6/RNF-04). Comunica que a faixa
+    90–100 só é atingível com avaliação dinâmica (Fase 2): o score `83/100` não é "reprovado em
+    17 pontos" — ~7 pontos são headroom reservado à Fase 2.
+    """
 
     model_config = ConfigDict(frozen=True)
 
@@ -298,6 +304,7 @@ class ReportHeader(BaseModel):
     verdict: Verdict
     score: int = Field(ge=0, le=100)
     confidence: Confidence
+    static_ceiling: int = Field(default=90, ge=0, le=100)
 
 
 class ReportMetadata(BaseModel):

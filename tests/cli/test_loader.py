@@ -45,6 +45,32 @@ def test_nested_paths_use_posix_separators(tmp_path: Path):
     assert "agents/planner.py" in files
 
 
+def test_skips_test_fixtures_but_keeps_tests(tmp_path: Path):
+    # Fixtures sob tests/ são dados sintéticos (alvos adversariais) → fora do escopo; o restante
+    # de tests/ (harness) permanece. Mantém `tests/` no escopo p/ detecção de harness (T4.5).
+    (tmp_path / "src").mkdir()
+    (tmp_path / "src" / "app.py").write_text("x = 1\n", encoding="utf-8")
+    tests_dir = tmp_path / "tests"
+    (tests_dir / "fixtures").mkdir(parents=True)
+    (tests_dir / "fixtures" / "bad_target.py").write_text(
+        "while True:\n    pass\n", encoding="utf-8"
+    )
+    (tests_dir / "test_app.py").write_text("def test_x():\n    assert True\n", encoding="utf-8")
+
+    files = read_target_directory(tmp_path)
+    assert "tests/test_app.py" in files  # harness preservado
+    assert "tests/fixtures/bad_target.py" not in files  # fixture sintética ignorada
+
+
+def test_top_level_fixtures_dir_is_not_skipped(tmp_path: Path):
+    # Só pulamos `fixtures` SOB diretório de teste — um `fixtures/` de topo é mantido.
+    fx = tmp_path / "fixtures"
+    fx.mkdir()
+    (fx / "data.py").write_text("x = 1\n", encoding="utf-8")
+    files = read_target_directory(tmp_path)
+    assert "fixtures/data.py" in files
+
+
 def test_missing_path_raises(tmp_path: Path):
     with pytest.raises(FileNotFoundError):
         read_target_directory(tmp_path / "does-not-exist")

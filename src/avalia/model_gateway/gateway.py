@@ -35,6 +35,11 @@ ENV_PRIMARY = "AVALIA_DEFAULT_PRIMARY_MODEL"
 ENV_FALLBACK = "AVALIA_DEFAULT_FALLBACK_MODEL"
 ENV_BACKEND = "AVALIA_DEFAULT_BACKEND"
 ENV_BASE_URL = "AVALIA_OPENROUTER_BASE_URL"
+ENV_MAX_TOKENS = "AVALIA_DEFAULT_MAX_TOKENS"  # T3.1 — controle de custo (RF-DIM-C2)
+ENV_TIMEOUT = "AVALIA_DEFAULT_TIMEOUT"  # T3.1 — controle de performance (RF-DIM-P2)
+# Defaults dos controles de custo/performance das chamadas de juízo (sobrescrevíveis por env).
+DEFAULT_MAX_TOKENS = 1024
+DEFAULT_TIMEOUT_S = 60.0
 
 
 class ModelRole(StrEnum):
@@ -51,6 +56,29 @@ class StructuredOutputUnsupported(RuntimeError):
 ClientFactory = Callable[[ModelRef], Any]
 
 
+def _env_int(env: Mapping[str, str], key: str, default: int) -> int:
+    """Lê inteiro positivo de env (RNF-06); valor inválido cai no default, sem quebrar."""
+    raw = env.get(key)
+    if raw is None:
+        return default
+    try:
+        value = int(raw)
+    except ValueError:
+        return default
+    return value if value > 0 else default
+
+
+def _env_float(env: Mapping[str, str], key: str, default: float) -> float:
+    raw = env.get(key)
+    if raw is None:
+        return default
+    try:
+        value = float(raw)
+    except ValueError:
+        return default
+    return value if value > 0 else default
+
+
 def _default_client_factory(ref: ModelRef) -> Any:
     """Constrói o cliente LangChain de forma PREGUIÇOSA (import só no acesso real).
 
@@ -61,6 +89,13 @@ def _default_client_factory(ref: ModelRef) -> Any:
     runtime idêntico e o mypy estável em qualquer versão instalada.
     """
     params: dict[str, Any] = {"model": ref.model, "temperature": ref.temperature}
+    # T3.1 — repassa os controles de custo/performance quando definidos (RF-DIM-C2/P2). As chaves
+    # de dict são propositais: além de configurarem a chamada, tornam o controle VISÍVEL à análise
+    # estática (T4.2 lê `max_tokens`/`timeout` como chave de dict) — fecha o acoplamento T3↔T4.
+    if ref.max_tokens is not None:
+        params["max_tokens"] = ref.max_tokens
+    if ref.timeout_s is not None:
+        params["timeout"] = ref.timeout_s
     if ref.backend is Backend.ANTHROPIC:
         from langchain_anthropic import ChatAnthropic
 
@@ -97,6 +132,8 @@ class ModelGateway:
             model=model,
             base_url=self._env.get(ENV_BASE_URL),
             temperature=0.0,  # RNF-01
+            max_tokens=_env_int(self._env, ENV_MAX_TOKENS, DEFAULT_MAX_TOKENS),  # T3.1
+            timeout_s=_env_float(self._env, ENV_TIMEOUT, DEFAULT_TIMEOUT_S),  # T3.1
         )
 
     def resolve(self, node_type: str, role: ModelRole) -> ModelRef:
