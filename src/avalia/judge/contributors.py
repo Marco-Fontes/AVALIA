@@ -16,7 +16,7 @@ from avalia.domain.enums import Dimension
 from avalia.domain.evidence import EvidenceRef
 from avalia.domain.tsm import TargetStaticModel
 from avalia.judge.base import JudgeContribution
-from avalia.judge.framework import GatewayLike, Judge
+from avalia.judge.framework import GatewayLike, Judge, JudgeCache
 from avalia.judge.rubrics import get_rubric
 
 
@@ -71,10 +71,15 @@ _RECONCILE_INSTRUCTION = (
 
 
 def _assess(
-    gateway: GatewayLike, dimension: Dimension, tsm: TargetStaticModel, instruction: str
+    gateway: GatewayLike,
+    dimension: Dimension,
+    tsm: TargetStaticModel,
+    instruction: str,
+    *,
+    cache: JudgeCache | None = None,
 ) -> JudgeContribution:
     spec = DIMENSION_JUDGE_SPEC[dimension]
-    judge = Judge(gateway, node_type=f"juiz_{dimension.value}")
+    judge = Judge(gateway, node_type=f"juiz_{dimension.value}", cache=cache)
     return judge.assess(
         dimension=dimension,
         rubric=get_rubric(spec.rubric_id),
@@ -86,13 +91,25 @@ def _assess(
 
 
 def build_contribution(
-    gateway: GatewayLike, dimension: Dimension, tsm: TargetStaticModel
+    gateway: GatewayLike,
+    dimension: Dimension,
+    tsm: TargetStaticModel,
+    *,
+    cache: JudgeCache | None = None,
 ) -> JudgeContribution:
-    return _assess(gateway, dimension, tsm, DIMENSION_JUDGE_SPEC[dimension].instruction)
+    return _assess(
+        gateway, dimension, tsm, DIMENSION_JUDGE_SPEC[dimension].instruction, cache=cache
+    )
 
 
 def reconcile(
-    gateway: GatewayLike, dimension: Dimension, tsm: TargetStaticModel
+    gateway: GatewayLike,
+    dimension: Dimension,
+    tsm: TargetStaticModel,
+    *,
+    cache: JudgeCache | None = None,
 ) -> JudgeContribution:
     """Re-julgamento estrito para reconciliar divergência (T-402), ancorado no fato do TSM."""
-    return _assess(gateway, dimension, tsm, _RECONCILE_INSTRUCTION.format(dim=dimension.value))
+    return _assess(
+        gateway, dimension, tsm, _RECONCILE_INSTRUCTION.format(dim=dimension.value), cache=cache
+    )

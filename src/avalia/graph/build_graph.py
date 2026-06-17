@@ -37,7 +37,7 @@ from avalia.graph.nodes import (
     route_after_weights,
 )
 from avalia.graph.state import AvaliaState
-from avalia.judge.framework import GatewayLike
+from avalia.judge.framework import GatewayLike, JudgeCache
 from avalia.persistence.repository import ReportRepository
 
 
@@ -51,12 +51,16 @@ def build_avalia_graph(
     # StateGraph é genérico e invariante no schema de estado; sob mypy strict o tipo do nó
     # (Callable[[AvaliaState], dict]) não encaixa no _Node[Never] esperado. Tratamos o builder
     # como Any — fronteira pragmática com o typing do LangGraph, sem afetar o runtime.
+    # T3.2: um cache de juízo por execução, compartilhado entre as 7 dimensões e a reconciliação
+    # (conteúdo idêntico não repete o modelo — RF-DIM-C2). Só quando há juiz (gateway) ativo.
+    judge_cache = JudgeCache() if gateway is not None else None
+
     g: Any = StateGraph(AvaliaState)
     g.add_node("ingest", n0_ingest)
     g.add_node("index", n1_index)
     g.add_node("classify", n2_classify)
     g.add_node("select_weights", n3_select_weights)
-    g.add_node("detect_divergence", make_detect_divergence_node(gateway))
+    g.add_node("detect_divergence", make_detect_divergence_node(gateway, judge_cache))
     g.add_node("human_gate", n4h_human_gate)
     g.add_node("budget_degraded", make_budget_degraded_node())
     g.add_node("aggregate", n5_aggregate)
@@ -65,7 +69,7 @@ def build_avalia_graph(
 
     dim_nodes = [f"dim_{d.value}" for d in Dimension]
     for d, name in zip(Dimension, dim_nodes, strict=True):
-        g.add_node(name, make_dimension_node(d, gateway))
+        g.add_node(name, make_dimension_node(d, gateway, judge_cache))
 
     g.set_entry_point("ingest")
     g.add_conditional_edges("ingest", route_after_ingest, {"error": END, "continue": "index"})

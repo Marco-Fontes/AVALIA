@@ -55,11 +55,34 @@ def _apply_readability_confidence(
     return out
 
 
-def _apply_partial_confidence(results: list[DimensionResult]) -> list[DimensionResult]:
-    """RF-12/CA-13: laudo parcial reduz a confiança das dimensões (cobertura incompleta)."""
+def _dimension_touches_sampled(dr: DimensionResult, sampled: set[str]) -> bool:
+    """A dimensão tem alguma evidência (achado) num arquivo que foi apenas amostrado?"""
+    return any(ev.file_path in sampled for f in dr.findings for ev in f.evidence)
+
+
+def _apply_partial_confidence(
+    results: list[DimensionResult],
+    tsm: TargetStaticModel,
+    config: EvaluatorConfig,
+    *,
+    broad: bool,
+) -> list[DimensionResult]:
+    """RF-12/CA-13 + T4.4 — laudo parcial reduz confiança de forma CALIBRADA.
+
+    `broad=True` (juízes pulados por budget / fallback esgotado) → rebaixa todas as aplicáveis.
+    Senão (parcial só por cobertura amostrada): rebaixa todas só quando a fração amostrada é
+    significativa (limiar configurável); abaixo disso, só as dimensões cujas evidências caem em
+    arquivos amostrados — assim 1 arquivo secundário amostrado não derruba dimensões intactas.
+    """
+    sampled = set(tsm.coverage.sampled)
+    total = len(tsm.coverage.fully_analyzed) + len(sampled)
+    fraction = (len(sampled) / total) if total else 0.0
+    reduce_all = broad or fraction >= config.partial_significant_fraction
+
     out: list[DimensionResult] = []
     for dr in results:
-        if dr.applicable and dr.confidence is not Confidence.BAIXO:
+        affected = reduce_all or _dimension_touches_sampled(dr, sampled)
+        if dr.applicable and affected and dr.confidence is not Confidence.BAIXO:
             note = "Confiança reduzida: laudo parcial — análise não foi integral (RF-12/CA-13)."
             out.append(
                 dr.model_copy(
@@ -129,14 +152,16 @@ def build_report(
     no_history_note: bool = False,
     partial: bool = False,
     partial_reasons: list[str] | None = None,
+    budget_partial: bool = False,
 ) -> EvaluationReport:
     divergences = divergences or []
     partial_reasons = partial_reasons or []
     # CB-02: ilegibilidade rebaixa a confiança das dimensões impactadas.
     results = _apply_readability_confidence(results, tsm)
-    # RF-12/CA-13: laudo parcial reduz a confiança das dimensões (cobertura incompleta).
+    # RF-12/CA-13 + T4.4: laudo parcial reduz a confiança de forma CALIBRADA. Budget/fallback
+    # esgotado (juízes pulados) → reduz amplo; parcial só por amostragem → calibrado por fração.
     if partial:
-        results = _apply_partial_confidence(results)
+        results = _apply_partial_confidence(results, tsm, config, broad=budget_partial)
     # Divergência escalada ao humano reduz a confiança reportada da dimensão (M3, regra 6).
     results = _apply_divergence_confidence(results, divergences)
 
@@ -146,6 +171,7 @@ def build_report(
         verdict=aggregate_score.verdict,
         score=aggregate_score.score,
         confidence=_overall_confidence(results, classification),
+        static_ceiling=config.static_ceiling,  # Frente 2: teto nominal da Fase 1 (exibido)
     )
 
     substitutions = [s for dr in results for s in dr.model_substitutions]

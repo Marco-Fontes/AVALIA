@@ -60,6 +60,21 @@ def test_no_false_positive_on_consistent_artifact():
     assert detect_contradictions(build_tsm(files)) == []
 
 
+def test_no_cross_file_false_positive():
+    # Precisão (§10): slug DECLARADO num arquivo (ex.: default/constante) e slug USADO em OUTRO
+    # arquivo (ex.: exemplo de teste) NÃO são contradição interna — só conta o mesmo arquivo.
+    files = {
+        "config.py": "DEFAULT_MODEL = 'claude-opus-4-8'\n",
+        "tests/example.py": "def t():\n    return chat(model='gpt-4o')\n",
+    }
+    findings = [
+        f
+        for f in detect_contradictions(build_tsm(files))
+        if f.finding_type is FindingType.CONTRADICAO_MODELO_CONFIG
+    ]
+    assert findings == []
+
+
 def test_contradiction_surfaces_in_dimension_results():
     from avalia.evaluators.custo import evaluate_custo
     from avalia.evaluators.trajetoria import evaluate_trajetoria

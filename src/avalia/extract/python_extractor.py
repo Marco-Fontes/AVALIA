@@ -40,8 +40,15 @@ _EDGE_METHODS = ("add_edge", "add_conditional_edges")
 _AGENT_NAME_HINTS = ("agent", "assistant", "worker", "expert", "planner", "researcher", "node")
 _UNBOUNDED_ITERS = ("count", "cycle", "repeat")
 _TOKEN_LIMIT_KW = ("max_tokens", "max_output_tokens", "max_completion_tokens")
+_TIMEOUT_KW = ("timeout", "timeout_s", "request_timeout")
+_STREAM_KW = ("stream", "streaming")
 _FALLBACK_KW = ("fallback", "fallbacks", "fallback_model")
 _VALIDATION_CALLS = ("isinstance", "validate", "model_validate", "parse_obj", "model_validate_json")
+# T4.1 — vocabulário ESTRUTURAL para retry/fallback imperativos (não só decorador/kwarg).
+# Exigimos padrão estrutural (laço/role/try-continue), não a mera presença do nome (§10 Riscos).
+# Tokens ESPECÍFICOS de retry: "retr"/"tries" soltos casariam "retriever"/"entries" (falso
+# positivo que mascararia SEM_RETRY). "attempt" cobre "attempt(s)"/"max_attempts".
+_RETRY_VOCAB = ("attempt", "retry", "backoff")
 
 
 def _deco_name(node: ast.expr) -> str:
@@ -82,6 +89,59 @@ def _has_own_break(loop: ast.For | ast.While) -> bool:
             if isinstance(n, ast.Break):
                 return True
     return False
+
+
+def _unparse_lower(node: ast.AST) -> str:
+    try:
+        return ast.unparse(node).lower()
+    except Exception:  # pragma: no cover - unparse é robusto no 3.12
+        return ""
+
+
+def _body_has_try_continue(loop: ast.For | ast.While) -> bool:
+    """Padrão retry: `try/except` com `continue` no corpo do laço (re-tenta na falha)."""
+    for stmt in loop.body:
+        if isinstance(stmt, ast.Try):
+            for handler in stmt.handlers:
+                for n in ast.walk(handler):
+                    if isinstance(n, ast.Continue):
+                        return True
+    return False
+
+
+def _is_retry_loop(loop: ast.For | ast.While) -> bool:
+    """T4.1 — laço de tentativas (estrutural): bounds/vars com vocabulário de retry OU
+    `try/except ...: continue` no corpo. Evita falso positivo de mero nome solto."""
+    iter_txt = _unparse_lower(loop.iter) if isinstance(loop, ast.For) else _unparse_lower(loop.test)
+    target_txt = _unparse_lower(loop.target) if isinstance(loop, ast.For) else ""
+    if any(v in iter_txt or v in target_txt for v in _RETRY_VOCAB):
+        return True
+    return _body_has_try_continue(loop)
+
+
+def _is_fallback_role_iter(loop: ast.For | ast.While) -> bool:
+    """T4.1 — fallback de modelo imperativo: iterar papéis/modelos contendo `fallback` junto de
+    `primary`/`role`/`model` (ex.: `for role in (ModelRole.PRIMARY, ModelRole.FALLBACK)`)."""
+    if not isinstance(loop, ast.For):
+        return False
+    iter_txt = _unparse_lower(loop.iter)
+    target_txt = _unparse_lower(loop.target)
+    has_fallback = "fallback" in iter_txt or "fallback" in target_txt
+    has_role_ctx = any(w in iter_txt for w in ("primary", "role", "model"))
+    return has_fallback and has_role_ctx
+
+
+def _key_kind(key: str) -> str | None:
+    """T4.2 — mapeia uma CHAVE (de dict, subscrito ou campo de config) ao sinal de robustez/custo
+    correspondente, para reconhecer `max_tokens`/`timeout` fora de kwargs literais de chamada."""
+    k = key.lower()
+    if k in _TOKEN_LIMIT_KW:
+        return "token_limit"
+    if k in _TIMEOUT_KW:
+        return "timeout"
+    if k in _STREAM_KW:
+        return "streaming"
+    return None
 
 
 class _FileVisitor(ast.NodeVisitor):
@@ -131,6 +191,13 @@ class _FileVisitor(ast.NodeVisitor):
             self.shared_state.append(
                 SharedStateRef(
                     name=node.name, kind="state_class", evidence=self._ev(node, sym, "shared_state")
+                )
+            )
+        # T3.2 — classe `*Cache` é sinal estrutural de cache (controle de custo, RF-DIM-C2).
+        if node.name.lower().endswith("cache"):
+            self.error_handling.append(
+                ErrorHandling(
+                    symbol=sym, kind="cache", evidence=self._ev(node, sym, "error_handling")
                 )
             )
         self.agents.append(
@@ -186,8 +253,34 @@ class _FileVisitor(ast.NodeVisitor):
         self._visit_func(node)
 
     # ---- statements ----
+    def visit_AnnAssign(self, node: ast.AnnAssign) -> None:
+        # T4.2: campo de config conhecido (ex.: `max_tokens: int|None = 1024` num ModelRef) conta
+        # como controle de custo/performance, mesmo sem ser kwarg de chamada.
+        if isinstance(node.target, ast.Name):
+            kind = _key_kind(node.target.id)
+            if kind is not None:
+                self._add_eh(node, kind)
+        self.generic_visit(node)
+
+    def visit_Dict(self, node: ast.Dict) -> None:
+        # T4.2: chave de dict (ex.: `{"max_tokens": ...}` montado para `ChatAnthropic(**params)`).
+        for key in node.keys:
+            if isinstance(key, ast.Constant) and isinstance(key.value, str):
+                kind = _key_kind(key.value)
+                if kind is not None:
+                    self._add_eh(node, kind)
+        self.generic_visit(node)
+
     def visit_Assign(self, node: ast.Assign) -> None:
         for tgt in node.targets:
+            # T4.2: subscrito com chave-string (ex.: `params["timeout"] = ...`).
+            if isinstance(tgt, ast.Subscript):
+                sl = tgt.slice
+                if isinstance(sl, ast.Constant) and isinstance(sl.value, str):
+                    kind = _key_kind(sl.value)
+                    if kind is not None:
+                        self._add_eh(node, kind)
+                continue
             if not isinstance(tgt, ast.Name):
                 continue
             name = tgt.id
@@ -282,6 +375,13 @@ class _FileVisitor(ast.NodeVisitor):
         )
         self.generic_visit(node)
 
+    def _detect_loop_robustness(self, loop: ast.For | ast.While) -> None:
+        """T4.1: retry/fallback IMPERATIVOS (laço de tentativas / iteração por papéis)."""
+        if _is_retry_loop(loop):
+            self._add_eh(loop, "retry")
+        if _is_fallback_role_iter(loop):
+            self._add_eh(loop, "fallback_modelo")
+
     def visit_For(self, node: ast.For) -> None:
         self.loop_idx += 1
         has_cap = True
@@ -298,6 +398,7 @@ class _FileVisitor(ast.NodeVisitor):
                 evidence=self._ev(node, self._sym(), "loop"),
             )
         )
+        self._detect_loop_robustness(node)
         self.generic_visit(node)
 
     def visit_While(self, node: ast.While) -> None:
@@ -319,6 +420,7 @@ class _FileVisitor(ast.NodeVisitor):
                 evidence=self._ev(node, self._sym(), "loop"),
             )
         )
+        self._detect_loop_robustness(node)
         self.generic_visit(node)
 
 
