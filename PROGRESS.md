@@ -1,6 +1,6 @@
 # AVALIA — Registro de Execução (Fase 4 / Implementação)
 
-**Atualizado:** 2026-06-18 · **Iteração atual:** M10 — 2º extrator TS/JS via tree-sitter (ver §7).
+**Atualizado:** 2026-06-18 · **Iteração atual:** M11 — endurecimento de produção (serde durável + docs, ver §7).
 **Fontes da verdade (imutáveis):** [spec.md](spec.md) v0.4 · [plan.md](plan.md) v1.3 · [tasks.md](tasks.md) v1.3.
 
 Este documento é o **log rastreável** do que já foi executado. Não altera as fontes da verdade —
@@ -433,9 +433,10 @@ número de cálculo ou faixa mudou.
 
 **Onde estamos.** Fase 1 (avaliação estática) implementada de ponta a ponta (M0–M7), suíte de
 aceite fechada (CA-01..15/CB-01..10), porta de entrada MVP (`avalia <alvo>`) e melhorias
-pós-dogfooding (Frentes 1–4, §2i), **M8** (histórico/comparação no CLI) e **M10** (extrator TS/JS
-via tree-sitter). 257 testes verdes; CI mecânico no PR. O **núcleo do produto
-está pronto**; o que falta é (a) ~~fechar lacunas de uso da Fase 1~~ (M8 ✅), (b) **validar empiricamente que
+pós-dogfooding (Frentes 1–4, §2i), **M8** (histórico/comparação no CLI), **M10** (extrator TS/JS
+via tree-sitter) e **M11** (serde durável + docs de produção). 262 testes verdes; CI mecânico no
+PR. O **núcleo do produto está pronto**; resta (a) ~~lacunas de uso~~ (M8 ✅), ~~cobertura de
+linguagem~~ (M10 ✅), ~~endurecimento de produção~~ (M11 ✅), (b) **validar empiricamente que
 o AVALIA julga bem** (meta-avaliação real — a pergunta central da spec §9.3), (c) ampliar
 cobertura, (d) endurecer para produção e, por fim, (e) a **Fase 2 dinâmica** (roadmap, gated).
 
@@ -489,14 +490,21 @@ execução:
 - **Dogfood:** `avalia` sobre um alvo `.ts` → multiagente/rag, score 77, **crítico** "loop sem
   teto no nó `retrieverAgent`" (`while(true)`), limitação estrutural declarada. 257 testes verdes.
 
-### M11 — Endurecimento de produção / deployment *(código + ops)*
-- **M11-1** — Subir o repositório de laudos Postgres em produção (T-601 já existe, hoje gated por
-  `AVALIA_PG_DSN`); migrações e operação.
-- **M11-2** — Ligar observabilidade LangSmith em produção (T-901, env-gated) — **não-bloqueante**
-  por design (plan §3.11).
-- **M11-3** — (Opcional) porta de entrada como **serviço/API** além da CLI, preservando RNF-11
-  (sem auth na Fase 1 — EC-05) e reusando o grafo. Avaliar antes de construir (evitar
-  superdimensionar).
+### M11 — Endurecimento de produção / deployment ✅ *(parte de código concluída; ops documentado)*
+O único **gap de código** real era o serde do checkpointer (atrito do M3 = M8-4); o resto já
+existia (repo Postgres T-601, LangSmith env-gated T-901) e foi **documentado** para deployment.
+
+| Tarefa | Estado | Entrega |
+|---|---|---|
+| **M8-4 / serde durável** | ✅ | `graph/serde.py` — `avalia_checkpoint_serde()`: `JsonPlusSerializer` com TODOS os tipos `avalia.*` (52, coletados por introspecção dos módulos de domínio/config/estado) na allowlist. Resolve o aviso do LangGraph ("tipos não-registrados serão bloqueados") → `interrupt`/`resume` (RF-24) à prova de `LANGGRAPH_STRICT_MSGPACK` e do `PostgresSaver`. `build_graph` passa a usá-lo no `MemorySaver` default. **Não usa allow-all** (segurança preservada). |
+| **M11-1 / Postgres em prod** | ✅ código (M8) + docs | O `PostgresReportRepository` (T-601) já é cabeado no CLI via `AVALIA_PG_DSN` (M8). README §Produção documenta o setup. |
+| **M11-2 / LangSmith** | ✅ docs | Já env-gated (T-901, não-bloqueante). README documenta `AVALIA_TRACING`/`LANGSMITH_API_KEY`. |
+| **M11-3 / API HTTP** | ⏸ adiado (deliberado) | Documentado como adiado (EC-05 sem auth na Fase 1; evitar superdimensionar). O grafo é reusável por um serviço futuro. |
+
+**Notas do M11:** o serde coleta tipos por introspecção (robusto a novos contratos — basta o
+módulo estar na lista); `importlib` foi **evitado** (o guard RNF-05 o proíbe em `src/`) usando
+imports diretos. Teste `tests/graph/test_m11_serde.py` (5) prova roundtrip por tipo **sob modo
+estrito** (0 avisos). README ganhou a seção **Produção**. 262 testes verdes.
 
 ### M12+ — Fase 2: avaliação dinâmica *(roadmap — ⚠ PARE-E-CONFIRME, S-05)*
 Os **ganchos já existem** (T-804: `execution_gate`, `TargetRunner`, `TestCaseGenerator`, slot

@@ -59,11 +59,29 @@ declaradas no laudo (RNF-12).
 
 ## Garantias
 
-- **Nunca executa o alvo** (RNF-05/S-04): só leitura estática (`ast`). Há hook + teste-guarda
-  contínuos que falham o build se algum caminho introduzir execução/importação do alvo.
+- **Nunca executa o alvo** (RNF-05/S-04): só leitura estática (`ast` para Python; **tree-sitter**
+  para TS/JS — estrutural, sem inferência de tipos, confiança reduzida declarada no laudo). Há hook
+  + teste-guarda contínuos que falham o build se algum caminho introduzir execução/import do alvo.
 - **Acesso a modelo só via `ModelGateway`** (RNF-06/RNF-12), nunca slugs hardcoded.
 - **Reproduzibilidade:** checagens determinísticas são bit-idênticas entre execuções; o juízo-LLM é
   estável por faixa (RNF-01).
+
+## Produção (deployment)
+
+A Fase 1 não exige autenticação nem banco para o uso local (RNF-11/EC-05). Para uma operação
+durável, configure por ambiente — o código já suporta, só falta a infraestrutura:
+
+- **Histórico de laudos (RF-28/29).** Local sem banco: `avalia <alvo> --history-dir ./histórico`.
+  Em produção: defina `AVALIA_PG_DSN` (Postgres) e o CLI usa o `PostgresReportRepository`
+  (schema idempotente `CREATE TABLE IF NOT EXISTS`; reusa a instância do checkpointer — resolução #3).
+- **HITL durável (RF-24).** O `interrupt`/`resume` da divergência usa `MemorySaver` por padrão
+  (suficiente para o CLI single-shot). Como **serviço**, injete um `PostgresSaver` construído com
+  `avalia_checkpoint_serde()` (`avalia.graph.serde`) — o serde registra os tipos `avalia.*`, à prova
+  do modo estrito (`LANGGRAPH_STRICT_MSGPACK`) e de versões futuras do LangGraph.
+- **Observabilidade (MS-10).** Tracing é **opcional e não-bloqueante**: ligue com
+  `AVALIA_TRACING=1` (+ `LANGSMITH_API_KEY`); ausente, o laudo é gerado igual.
+- **API/serviço HTTP:** deliberadamente **adiado** (avaliar antes de construir — sem auth na Fase 1,
+  EC-05). O avaliador roda hoje via CLI ou `build_avalia_graph().invoke`.
 
 ## Desenvolvimento
 
