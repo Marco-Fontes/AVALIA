@@ -1,6 +1,6 @@
 # AVALIA — Registro de Execução (Fase 4 / Implementação)
 
-**Atualizado:** 2026-06-16 · **Iteração atual:** Melhorias pós-dogfooding (Frentes 1–4 de [PLANO-MELHORIAS.md](PLANO-MELHORIAS.md)).
+**Atualizado:** 2026-06-17 · **Iteração atual:** M8 — histórico/comparação no CLI (M8-1/M8-2, ver §7).
 **Fontes da verdade (imutáveis):** [spec.md](spec.md) v0.4 · [plan.md](plan.md) v1.3 · [tasks.md](tasks.md) v1.3.
 
 Este documento é o **log rastreável** do que já foi executado. Não altera as fontes da verdade —
@@ -429,19 +429,82 @@ número de cálculo ou faixa mudou.
 
 ---
 
-## 7. Próximo passo — Fase 1 implementada (M0–M7 concluídos)
+## 7. Estado atual + Roadmap das próximas etapas (M8+)
 
-A Fase 1 (avaliação estática) está implementada de ponta a ponta e com suíte de aceite fechada.
-Itens em aberto são **dependências externas** ou roadmap, não código pendente do AVALIA:
-- **Calibração de meta-avaliação** BLOQUEADA por **D-03** (dataset curado por humanos) e **D-04**
-  (primeiro lote) — o pipeline de medição já existe (M6); falta o dado de referência.
-- **tree-sitter** (2º extrator, TS/JS) deferido — entra pela interface plugável (T-101) sem tocar
-  TSM/avaliadores.
-- **Empacotamento de uso (MVP)** — uma porta de entrada (CLI/serviço) que varra o repositório de um
-  alvo real e gere o laudo ainda não existe; o avaliador roda hoje via `build_avalia_graph().invoke`.
-- **Fase 2** (avaliação dinâmica) permanece fora de escopo (S-05); os ganchos (T-804) estão prontos.
+**Onde estamos.** Fase 1 (avaliação estática) implementada de ponta a ponta (M0–M7), suíte de
+aceite fechada (CA-01..15/CB-01..10), porta de entrada MVP (`avalia <alvo>`) e melhorias
+pós-dogfooding (Frentes 1–4, §2i) e **M8** (histórico/comparação cabeados no CLI). 249 testes
+verdes; CI mecânico no PR. O **núcleo do produto
+está pronto**; o que falta é (a) ~~fechar lacunas de uso da Fase 1~~ (M8 ✅), (b) **validar empiricamente que
+o AVALIA julga bem** (meta-avaliação real — a pergunta central da spec §9.3), (c) ampliar
+cobertura, (d) endurecer para produção e, por fim, (e) a **Fase 2 dinâmica** (roadmap, gated).
 
-### Decisões/atritos acumulados (M1–M7)
+> Convenção: cada etapa cita os requisitos/decisões da fonte da verdade. **⚠ PARE-E-CONFIRME**
+> marca trabalho que toca a Fase 2 (S-05) ou contraria EC-01..EC-10 — não iniciar sem aprovação
+> humana explícita (CLAUDE.md).
+
+### M8 — Fechar lacunas de uso da Fase 1 ✅ *(M8-1/M8-2 concluídos; M8-3 já estava pronto; M8-4 → M11)*
+Itens que já tinham a infraestrutura pronta nos testes mas **não estavam cabeados na porta de uso**.
+
+| Tarefa | Estado | Entrega | Requisitos |
+|---|---|---|---|
+| **M8-1 — Histórico/comparação no CLI** | ✅ | `cli.py`: flag `--history-dir` + `_make_repository` (precedência `--history-dir` → `AVALIA_PG_DSN` → nenhum); `build_avalia_graph(gateway=..., repository=...)`; linha de comparação no resumo. Antes `compare_history` era no-op pela CLI. | RF-28, RF-29; US-05, US-08; RNF-11 |
+| **M8-2 — Persistência local sem Postgres** | ✅ | `persistence/json_file.py` — `JsonFileReportRepository` (stdlib, sem driver): grava `<dir>/<report_id>.json`, `latest_for` por `created_at`; `target_id` só no JSON (sem sanitizar path). Implementa o `Protocol ReportRepository`; coberto pelo teste-contrato parametrizado. | RF-28; D-02; RNF-11 |
+| **M8-3 — Guard `guard_no_target_exec` AST-aware** | ✅ já pronto | O hook **já** usa `scan_ast` (regex só como fallback quando `ast.parse` falha) — sem falso positivo em docstrings. Nada a fazer. | RNF-05 (tooling) |
+| **M8-4 — Serde do checkpointer p/ Postgres** | → **M11** | É concern de produção (HITL durável com `PostgresSaver`); a CLI usa `MemorySaver` e o repositório de laudos é independente do checkpointer. Movido para M11. | RF-24; plan §3.8a |
+
+**Decisões/notas do M8:** repositório de histórico é **opt-in** (sem flag → comportamento atual,
+zero config — RNF-11); nome do arquivo = `report_id` (uuid) evita sanitizar o `target_id` livre;
+`latest_for` ignora arquivos corrompidos/alheios (postura defensiva). Testes: `+jsonfile` no
+teste-contrato (`tests/persistence/test_repository.py`) e 2 testes de CLI (compara v1→v2 com
+`--history-dir`; sem flag não persiste). **249 testes verdes**; gates limpos; nada executa o alvo.
+
+### M9 — Meta-avaliação REAL (validar se o AVALIA julga bem) *(operacional; bloqueado por D-03/D-04)*
+O **pipeline** já existe (M6: `metaeval/`, smoke T-1007). O que falta **não é código**, é dado e
+execução:
+
+| Tarefa | O que falta | Requisitos | Bloqueio |
+|---|---|---|---|
+| **M9-1 — Curar o dataset de benchmark** | Conjunto de sistemas-alvo com **veredito humano de referência por dimensão** + classificação (topologia/tipo). Trabalho humano de curadoria. | MS-07, MS-09; **D-03** | Dependência externa (curadoria). |
+| **M9-2 — Primeiro lote + calibração do limiar** | Rodar o AVALIA no dataset, comparar com o rótulo humano (`metaeval/harness.py`), **calibrar o limiar de "confiável"** (não fixado na Spec — EC-10). | MS-04, MS-08; **D-04** | Depende de M9-1. |
+| **M9-3 — Relatório de meta-avaliação periódico** | Job que mede MS-04/07/08/09 ao longo do tempo (deriva/melhoria). | MS-10 | Depende de M9-1/M9-2. |
+
+> Sem M9 o AVALIA **funciona**, mas a confiança nos seus julgamentos permanece *autodeclarada*.
+> Esta é a etapa de maior valor de credibilidade do produto.
+
+### M10 — Cobertura de linguagem: 2º extrator (TS/JS) *(código; médio esforço; sem conflito)*
+- **M10-1** — Extrator TS/JS via **tree-sitter**, plugando na interface `LanguageExtractor` (T-101)
+  e no registry, **sem tocar o TSM nem os avaliadores** (resolução #1 previu exatamente isso).
+- **M10-2** — Estender fixtures/aceite a um alvo TS/JS; declarar confiança reduzida onde a
+  extração for estrutural-sem-tipos (RNF-08).
+- Endereça o **Risco R1** (cobertura de linguagem) do plan §9. Mantém Python first-class.
+
+### M11 — Endurecimento de produção / deployment *(código + ops)*
+- **M11-1** — Subir o repositório de laudos Postgres em produção (T-601 já existe, hoje gated por
+  `AVALIA_PG_DSN`); migrações e operação.
+- **M11-2** — Ligar observabilidade LangSmith em produção (T-901, env-gated) — **não-bloqueante**
+  por design (plan §3.11).
+- **M11-3** — (Opcional) porta de entrada como **serviço/API** além da CLI, preservando RNF-11
+  (sem auth na Fase 1 — EC-05) e reusando o grafo. Avaliar antes de construir (evitar
+  superdimensionar).
+
+### M12+ — Fase 2: avaliação dinâmica *(roadmap — ⚠ PARE-E-CONFIRME, S-05)*
+Os **ganchos já existem** (T-804: `execution_gate`, `TargetRunner`, `TestCaseGenerator`, slot
+`dynamic_metrics`), mas **nada disso pode ser implementado sem confirmação humana explícita** —
+Fase 2 está fora do escopo atual (S-05) e executar o alvo viola o invariante absoluto da Fase 1
+até que o gate de aprovação (RF-23/CA-12) seja construído.
+
+| Tarefa (roadmap) | Escopo | Requisitos |
+|---|---|---|
+| **M12-1 — Gate de execução** | `execution_gate` real entre N5 e N7 com `interrupt()` de aprovação **antes** de qualquer execução; nenhuma execução por omissão/timeout. | RF-23, CA-12, RNF-05 |
+| **M12-2 — Runner isolado** | Implementar `TargetRunner` num **ambiente sandboxed** (isolamento de credenciais/estado — S-06). | O7; D-01 |
+| **M12-3 — Geração de casos de teste** | `TestCaseGenerator` consumindo o TSM (já disponível) para gerar casos + critérios de sucesso. | O8 |
+| **M12-4 — Captura de traces + métricas reais** | Popular `dynamic_metrics` (refina o slot opaco): custo/latência reais, taxa de alucinação, calibração de confiança, trajetória real de ferramentas. | O9; RF-13 (fecha o que a Fase 1 não pôde medir) |
+
+**Ordem recomendada:** M8 (semanas) → M9 (depende de curadoria humana, pode correr em paralelo) →
+M10 → M11 → M12 (só após decisão de negócio + confirmação humana).
+
+### Decisões/atritos acumulados (M1–M7) — insumo do roadmap acima
 - **Extrator `ast`-only** (escolha do usuário); tree-sitter deferido via a interface plugável.
 - **Tracing aplicado no `invoke` (callbacks), não na construção do grafo** — `build_avalia_graph`
   permanece sem dependência de observabilidade; LangSmith é opcional e nunca bloqueia o laudo.

@@ -62,11 +62,35 @@ def _build_parser() -> argparse.ArgumentParser:
         default=None,
         help="Teto de arquivos analisados a fundo; acima dele o resto é amostrado (laudo parcial).",
     )
+    p.add_argument(
+        "--history-dir",
+        default=None,
+        help="Diretório de histórico de laudos (arquivos JSON). Quando dado, persiste o laudo e "
+        "compara com a versão anterior do mesmo --target-id (RF-28/29). Sem ele, usa AVALIA_PG_DSN "
+        "se definido; senão não há histórico (default).",
+    )
     return p
 
 
 def _make_config(args: argparse.Namespace) -> EvaluatorConfig:
     return EvaluatorConfig(max_analyzed_files=args.max_files)
+
+
+def _make_repository(args: argparse.Namespace) -> Any:
+    """Backend de histórico (RF-28/29), opt-in (RNF-11). Precedência: --history-dir > DSN > nenhum.
+
+    Retorna um `ReportRepository` ou `None` (sem histórico — comportamento default da CLI).
+    """
+    if args.history_dir:
+        from avalia.persistence.json_file import JsonFileReportRepository
+
+        return JsonFileReportRepository(args.history_dir)
+    dsn = os.environ.get("AVALIA_PG_DSN")
+    if dsn:
+        from avalia.persistence.postgres import PostgresReportRepository
+
+        return PostgresReportRepository(dsn)
+    return None
 
 
 def _summary(report: Any, status: RunStatus, mode: str, out_paths: list[Path]) -> str:
@@ -98,6 +122,16 @@ def _summary(report: Any, status: RunStatus, mode: str, out_paths: list[Path]) -
     subs = sorted({s for dr in report.dimensions for s in dr.model_substitutions})
     if subs:
         lines.append(f"  Substituições de modelo (RNF-12): {'; '.join(subs)}")
+    cmp = report.comparison
+    if (
+        cmp is not None
+    ):  # RF-29: comparação com a versão anterior (a seção completa vai no laudo.md)
+        lines.append(
+            f"  Comparação vs. anterior ({cmp.prev_report_id[:8]}…): "
+            f"{len(cmp.regressions)} regressão(ões), {len(cmp.improvements)} melhoria(s); "
+            f"achados {len(cmp.resolved_findings)} resolvido(s) / "
+            f"{len(cmp.persistent_findings)} persistente(s) / {len(cmp.new_findings)} novo(s)"
+        )
     if report.consolidated_recommendations:
         lines.append("  Recomendações principais:")
         for rec in report.consolidated_recommendations[:5]:
@@ -151,7 +185,8 @@ def main(argv: list[str] | None = None) -> int:
         gateway = ModelGateway(config)
         mode = "juiz-LLM (ModelGateway)"
 
-    graph = build_avalia_graph(gateway=gateway)
+    repository = _make_repository(args)
+    graph = build_avalia_graph(gateway=gateway, repository=repository)
     provider = CLIApprovalProvider() if gateway is not None else StaticApprovalProvider([])
     result = run_evaluation(
         graph, {"submission": submission}, approval_provider=provider, thread_id=target_id
