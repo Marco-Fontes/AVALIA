@@ -1,6 +1,6 @@
 # AVALIA — Registro de Execução (Fase 4 / Implementação)
 
-**Atualizado:** 2026-06-17 · **Iteração atual:** M8 — histórico/comparação no CLI (M8-1/M8-2, ver §7).
+**Atualizado:** 2026-06-18 · **Iteração atual:** M10 — 2º extrator TS/JS via tree-sitter (ver §7).
 **Fontes da verdade (imutáveis):** [spec.md](spec.md) v0.4 · [plan.md](plan.md) v1.3 · [tasks.md](tasks.md) v1.3.
 
 Este documento é o **log rastreável** do que já foi executado. Não altera as fontes da verdade —
@@ -433,8 +433,8 @@ número de cálculo ou faixa mudou.
 
 **Onde estamos.** Fase 1 (avaliação estática) implementada de ponta a ponta (M0–M7), suíte de
 aceite fechada (CA-01..15/CB-01..10), porta de entrada MVP (`avalia <alvo>`) e melhorias
-pós-dogfooding (Frentes 1–4, §2i) e **M8** (histórico/comparação cabeados no CLI). 249 testes
-verdes; CI mecânico no PR. O **núcleo do produto
+pós-dogfooding (Frentes 1–4, §2i), **M8** (histórico/comparação no CLI) e **M10** (extrator TS/JS
+via tree-sitter). 257 testes verdes; CI mecânico no PR. O **núcleo do produto
 está pronto**; o que falta é (a) ~~fechar lacunas de uso da Fase 1~~ (M8 ✅), (b) **validar empiricamente que
 o AVALIA julga bem** (meta-avaliação real — a pergunta central da spec §9.3), (c) ampliar
 cobertura, (d) endurecer para produção e, por fim, (e) a **Fase 2 dinâmica** (roadmap, gated).
@@ -472,12 +472,22 @@ execução:
 > Sem M9 o AVALIA **funciona**, mas a confiança nos seus julgamentos permanece *autodeclarada*.
 > Esta é a etapa de maior valor de credibilidade do produto.
 
-### M10 — Cobertura de linguagem: 2º extrator (TS/JS) *(código; médio esforço; sem conflito)*
-- **M10-1** — Extrator TS/JS via **tree-sitter**, plugando na interface `LanguageExtractor` (T-101)
-  e no registry, **sem tocar o TSM nem os avaliadores** (resolução #1 previu exatamente isso).
-- **M10-2** — Estender fixtures/aceite a um alvo TS/JS; declarar confiança reduzida onde a
-  extração for estrutural-sem-tipos (RNF-08).
-- Endereça o **Risco R1** (cobertura de linguagem) do plan §9. Mantém Python first-class.
+### M10 — Cobertura de linguagem: 2º extrator (TS/JS) ✅ *(concluído)*
+- **M10-1** ✅ — `extract/treesitter_extractor.py`: extração **estrutural** JS/TS via tree-sitter,
+  plugando na interface `LanguageExtractor` (T-101) e no registry, **sem tocar o TSM nem os
+  avaliadores** (resolução #1). Cobre agentes (func/arrow/classe), prompts (const + props de
+  objeto), arestas (`addEdge`/`addConditionalEdges`), loops com teto best-effort (`while(true)`),
+  atribuição de modelo, estado compartilhado (interface `*State`, param `state`) e robustez
+  (try/catch, retry, timeout, streaming, fallback, cache, validação). Gramáticas via import
+  preguiçoso; se ausentes, os arquivos caem em best-effort (registry não registra).
+- **M10-2** ✅ — fixture `tests/fixtures/js_multiagente/graph.ts` + `tests/extract/test_treesitter_extractor.py`
+  (8 testes); `build_report` declara a **confiança reduzida** da análise estrutural-sem-tipos
+  (RNF-08, `is_structural_only`). **Ingest:** `ingest_validate` passou a reconhecer JS/TS como
+  "código-fonte" (via `language_for_path`) — antes um alvo TS/JS era rejeitado no portão (RF-02).
+- Endereça o **Risco R1** (cobertura de linguagem) do plan §9. Python (`ast`) segue first-class.
+- **Deps:** `tree-sitter-javascript`/`tree-sitter-typescript` adicionadas ao `pyproject.toml`.
+- **Dogfood:** `avalia` sobre um alvo `.ts` → multiagente/rag, score 77, **crítico** "loop sem
+  teto no nó `retrieverAgent`" (`while(true)`), limitação estrutural declarada. 257 testes verdes.
 
 ### M11 — Endurecimento de produção / deployment *(código + ops)*
 - **M11-1** — Subir o repositório de laudos Postgres em produção (T-601 já existe, hoje gated por

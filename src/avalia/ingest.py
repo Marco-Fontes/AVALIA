@@ -20,6 +20,11 @@ from pydantic import BaseModel, ConfigDict
 from avalia.domain.contracts import ComponentInventory
 from avalia.domain.enums import RunStatus
 from avalia.domain.submission import Submission
+from avalia.extract.registry import language_for_path
+
+# Linguagens de CÓDIGO (não config/dados) que contam como "código-fonte" obrigatório (RF-02).
+# Mantido em sincronia com os extratores registrados; config (.yaml etc.) é "configuracao".
+_CODE_LANGUAGES = frozenset({"python", "javascript", "typescript"})
 
 # Sinais (heurísticos, declarados) de componentes opcionais/obrigatórios no texto dos artefatos.
 _HARNESS_PATH_HINTS = ("test_", "_test.py", "/tests/", "/test/", "conftest")
@@ -76,7 +81,7 @@ def ingest_validate(submission: Submission) -> IngestOutcome:
     present: list[str] = []
     missing: list[str] = []
 
-    has_source = bool(submission.python_files())
+    has_source = any(language_for_path(p) in _CODE_LANGUAGES for p in files)
     (present if has_source else missing).append("codigo_fonte")
 
     # Componentes não-bloqueantes (opcionais/secundários) — registrados para auditoria (RF-01).
