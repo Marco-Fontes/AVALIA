@@ -1,6 +1,6 @@
 # AVALIA — Registro de Execução (Fase 4 / Implementação)
 
-**Atualizado:** 2026-06-16 · **Iteração atual:** Melhorias pós-dogfooding (Frentes 1–4 de [PLANO-MELHORIAS.md](PLANO-MELHORIAS.md)).
+**Atualizado:** 2026-06-18 · **Iteração atual:** M11 — endurecimento de produção (serde durável + docs, ver §7).
 **Fontes da verdade (imutáveis):** [spec.md](spec.md) v0.4 · [plan.md](plan.md) v1.3 · [tasks.md](tasks.md) v1.3.
 
 Este documento é o **log rastreável** do que já foi executado. Não altera as fontes da verdade —
@@ -429,19 +429,100 @@ número de cálculo ou faixa mudou.
 
 ---
 
-## 7. Próximo passo — Fase 1 implementada (M0–M7 concluídos)
+## 7. Estado atual + Roadmap das próximas etapas (M8+)
 
-A Fase 1 (avaliação estática) está implementada de ponta a ponta e com suíte de aceite fechada.
-Itens em aberto são **dependências externas** ou roadmap, não código pendente do AVALIA:
-- **Calibração de meta-avaliação** BLOQUEADA por **D-03** (dataset curado por humanos) e **D-04**
-  (primeiro lote) — o pipeline de medição já existe (M6); falta o dado de referência.
-- **tree-sitter** (2º extrator, TS/JS) deferido — entra pela interface plugável (T-101) sem tocar
-  TSM/avaliadores.
-- **Empacotamento de uso (MVP)** — uma porta de entrada (CLI/serviço) que varra o repositório de um
-  alvo real e gere o laudo ainda não existe; o avaliador roda hoje via `build_avalia_graph().invoke`.
-- **Fase 2** (avaliação dinâmica) permanece fora de escopo (S-05); os ganchos (T-804) estão prontos.
+**Onde estamos.** Fase 1 (avaliação estática) implementada de ponta a ponta (M0–M7), suíte de
+aceite fechada (CA-01..15/CB-01..10), porta de entrada MVP (`avalia <alvo>`) e melhorias
+pós-dogfooding (Frentes 1–4, §2i), **M8** (histórico/comparação no CLI), **M10** (extrator TS/JS
+via tree-sitter) e **M11** (serde durável + docs de produção). 262 testes verdes; CI mecânico no
+PR. O **núcleo do produto está pronto**; resta (a) ~~lacunas de uso~~ (M8 ✅), ~~cobertura de
+linguagem~~ (M10 ✅), ~~endurecimento de produção~~ (M11 ✅), (b) **validar empiricamente que
+o AVALIA julga bem** (meta-avaliação real — a pergunta central da spec §9.3), (c) ampliar
+cobertura, (d) endurecer para produção e, por fim, (e) a **Fase 2 dinâmica** (roadmap, gated).
 
-### Decisões/atritos acumulados (M1–M7)
+> Convenção: cada etapa cita os requisitos/decisões da fonte da verdade. **⚠ PARE-E-CONFIRME**
+> marca trabalho que toca a Fase 2 (S-05) ou contraria EC-01..EC-10 — não iniciar sem aprovação
+> humana explícita (CLAUDE.md).
+
+### M8 — Fechar lacunas de uso da Fase 1 ✅ *(M8-1/M8-2 concluídos; M8-3 já estava pronto; M8-4 → M11)*
+Itens que já tinham a infraestrutura pronta nos testes mas **não estavam cabeados na porta de uso**.
+
+| Tarefa | Estado | Entrega | Requisitos |
+|---|---|---|---|
+| **M8-1 — Histórico/comparação no CLI** | ✅ | `cli.py`: flag `--history-dir` + `_make_repository` (precedência `--history-dir` → `AVALIA_PG_DSN` → nenhum); `build_avalia_graph(gateway=..., repository=...)`; linha de comparação no resumo. Antes `compare_history` era no-op pela CLI. | RF-28, RF-29; US-05, US-08; RNF-11 |
+| **M8-2 — Persistência local sem Postgres** | ✅ | `persistence/json_file.py` — `JsonFileReportRepository` (stdlib, sem driver): grava `<dir>/<report_id>.json`, `latest_for` por `created_at`; `target_id` só no JSON (sem sanitizar path). Implementa o `Protocol ReportRepository`; coberto pelo teste-contrato parametrizado. | RF-28; D-02; RNF-11 |
+| **M8-3 — Guard `guard_no_target_exec` AST-aware** | ✅ já pronto | O hook **já** usa `scan_ast` (regex só como fallback quando `ast.parse` falha) — sem falso positivo em docstrings. Nada a fazer. | RNF-05 (tooling) |
+| **M8-4 — Serde do checkpointer p/ Postgres** | → **M11** | É concern de produção (HITL durável com `PostgresSaver`); a CLI usa `MemorySaver` e o repositório de laudos é independente do checkpointer. Movido para M11. | RF-24; plan §3.8a |
+
+**Decisões/notas do M8:** repositório de histórico é **opt-in** (sem flag → comportamento atual,
+zero config — RNF-11); nome do arquivo = `report_id` (uuid) evita sanitizar o `target_id` livre;
+`latest_for` ignora arquivos corrompidos/alheios (postura defensiva). Testes: `+jsonfile` no
+teste-contrato (`tests/persistence/test_repository.py`) e 2 testes de CLI (compara v1→v2 com
+`--history-dir`; sem flag não persiste). **249 testes verdes**; gates limpos; nada executa o alvo.
+
+### M9 — Meta-avaliação REAL (validar se o AVALIA julga bem) *(operacional; bloqueado por D-03/D-04)*
+O **pipeline** já existe (M6: `metaeval/`, smoke T-1007). O que falta **não é código**, é dado e
+execução:
+
+| Tarefa | O que falta | Requisitos | Bloqueio |
+|---|---|---|---|
+| **M9-1 — Curar o dataset de benchmark** | Conjunto de sistemas-alvo com **veredito humano de referência por dimensão** + classificação (topologia/tipo). Trabalho humano de curadoria. | MS-07, MS-09; **D-03** | Dependência externa (curadoria). |
+| **M9-2 — Primeiro lote + calibração do limiar** | Rodar o AVALIA no dataset, comparar com o rótulo humano (`metaeval/harness.py`), **calibrar o limiar de "confiável"** (não fixado na Spec — EC-10). | MS-04, MS-08; **D-04** | Depende de M9-1. |
+| **M9-3 — Relatório de meta-avaliação periódico** | Job que mede MS-04/07/08/09 ao longo do tempo (deriva/melhoria). | MS-10 | Depende de M9-1/M9-2. |
+
+> Sem M9 o AVALIA **funciona**, mas a confiança nos seus julgamentos permanece *autodeclarada*.
+> Esta é a etapa de maior valor de credibilidade do produto.
+
+### M10 — Cobertura de linguagem: 2º extrator (TS/JS) ✅ *(concluído)*
+- **M10-1** ✅ — `extract/treesitter_extractor.py`: extração **estrutural** JS/TS via tree-sitter,
+  plugando na interface `LanguageExtractor` (T-101) e no registry, **sem tocar o TSM nem os
+  avaliadores** (resolução #1). Cobre agentes (func/arrow/classe), prompts (const + props de
+  objeto), arestas (`addEdge`/`addConditionalEdges`), loops com teto best-effort (`while(true)`),
+  atribuição de modelo, estado compartilhado (interface `*State`, param `state`) e robustez
+  (try/catch, retry, timeout, streaming, fallback, cache, validação). Gramáticas via import
+  preguiçoso; se ausentes, os arquivos caem em best-effort (registry não registra).
+- **M10-2** ✅ — fixture `tests/fixtures/js_multiagente/graph.ts` + `tests/extract/test_treesitter_extractor.py`
+  (8 testes); `build_report` declara a **confiança reduzida** da análise estrutural-sem-tipos
+  (RNF-08, `is_structural_only`). **Ingest:** `ingest_validate` passou a reconhecer JS/TS como
+  "código-fonte" (via `language_for_path`) — antes um alvo TS/JS era rejeitado no portão (RF-02).
+- Endereça o **Risco R1** (cobertura de linguagem) do plan §9. Python (`ast`) segue first-class.
+- **Deps:** `tree-sitter-javascript`/`tree-sitter-typescript` adicionadas ao `pyproject.toml`.
+- **Dogfood:** `avalia` sobre um alvo `.ts` → multiagente/rag, score 77, **crítico** "loop sem
+  teto no nó `retrieverAgent`" (`while(true)`), limitação estrutural declarada. 257 testes verdes.
+
+### M11 — Endurecimento de produção / deployment ✅ *(parte de código concluída; ops documentado)*
+O único **gap de código** real era o serde do checkpointer (atrito do M3 = M8-4); o resto já
+existia (repo Postgres T-601, LangSmith env-gated T-901) e foi **documentado** para deployment.
+
+| Tarefa | Estado | Entrega |
+|---|---|---|
+| **M8-4 / serde durável** | ✅ | `graph/serde.py` — `avalia_checkpoint_serde()`: `JsonPlusSerializer` com TODOS os tipos `avalia.*` (52, coletados por introspecção dos módulos de domínio/config/estado) na allowlist. Resolve o aviso do LangGraph ("tipos não-registrados serão bloqueados") → `interrupt`/`resume` (RF-24) à prova de `LANGGRAPH_STRICT_MSGPACK` e do `PostgresSaver`. `build_graph` passa a usá-lo no `MemorySaver` default. **Não usa allow-all** (segurança preservada). |
+| **M11-1 / Postgres em prod** | ✅ código (M8) + docs | O `PostgresReportRepository` (T-601) já é cabeado no CLI via `AVALIA_PG_DSN` (M8). README §Produção documenta o setup. |
+| **M11-2 / LangSmith** | ✅ docs | Já env-gated (T-901, não-bloqueante). README documenta `AVALIA_TRACING`/`LANGSMITH_API_KEY`. |
+| **M11-3 / API HTTP** | ⏸ adiado (deliberado) | Documentado como adiado (EC-05 sem auth na Fase 1; evitar superdimensionar). O grafo é reusável por um serviço futuro. |
+
+**Notas do M11:** o serde coleta tipos por introspecção (robusto a novos contratos — basta o
+módulo estar na lista); `importlib` foi **evitado** (o guard RNF-05 o proíbe em `src/`) usando
+imports diretos. Teste `tests/graph/test_m11_serde.py` (5) prova roundtrip por tipo **sob modo
+estrito** (0 avisos). README ganhou a seção **Produção**. 262 testes verdes.
+
+### M12+ — Fase 2: avaliação dinâmica *(roadmap — ⚠ PARE-E-CONFIRME, S-05)*
+Os **ganchos já existem** (T-804: `execution_gate`, `TargetRunner`, `TestCaseGenerator`, slot
+`dynamic_metrics`), mas **nada disso pode ser implementado sem confirmação humana explícita** —
+Fase 2 está fora do escopo atual (S-05) e executar o alvo viola o invariante absoluto da Fase 1
+até que o gate de aprovação (RF-23/CA-12) seja construído.
+
+| Tarefa (roadmap) | Escopo | Requisitos |
+|---|---|---|
+| **M12-1 — Gate de execução** | `execution_gate` real entre N5 e N7 com `interrupt()` de aprovação **antes** de qualquer execução; nenhuma execução por omissão/timeout. | RF-23, CA-12, RNF-05 |
+| **M12-2 — Runner isolado** | Implementar `TargetRunner` num **ambiente sandboxed** (isolamento de credenciais/estado — S-06). | O7; D-01 |
+| **M12-3 — Geração de casos de teste** | `TestCaseGenerator` consumindo o TSM (já disponível) para gerar casos + critérios de sucesso. | O8 |
+| **M12-4 — Captura de traces + métricas reais** | Popular `dynamic_metrics` (refina o slot opaco): custo/latência reais, taxa de alucinação, calibração de confiança, trajetória real de ferramentas. | O9; RF-13 (fecha o que a Fase 1 não pôde medir) |
+
+**Ordem recomendada:** M8 (semanas) → M9 (depende de curadoria humana, pode correr em paralelo) →
+M10 → M11 → M12 (só após decisão de negócio + confirmação humana).
+
+### Decisões/atritos acumulados (M1–M7) — insumo do roadmap acima
 - **Extrator `ast`-only** (escolha do usuário); tree-sitter deferido via a interface plugável.
 - **Tracing aplicado no `invoke` (callbacks), não na construção do grafo** — `build_avalia_graph`
   permanece sem dependência de observabilidade; LangSmith é opcional e nunca bloqueia o laudo.

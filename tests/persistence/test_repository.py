@@ -36,12 +36,17 @@ _DSN = os.environ.get("AVALIA_PG_DSN")
 @pytest.fixture(
     params=[
         "inmemory",
+        "jsonfile",
         pytest.param("postgres", marks=pytest.mark.skipif(not _DSN, reason="sem AVALIA_PG_DSN")),
     ]
 )
-def repo(request):
+def repo(request, tmp_path):
     if request.param == "inmemory":
         return InMemoryReportRepository()
+    if request.param == "jsonfile":
+        from avalia.persistence.json_file import JsonFileReportRepository
+
+        return JsonFileReportRepository(tmp_path / "history")
     from avalia.persistence.postgres import PostgresReportRepository
 
     return PostgresReportRepository(_DSN)

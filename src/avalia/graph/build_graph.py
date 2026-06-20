@@ -36,6 +36,7 @@ from avalia.graph.nodes import (
     route_after_ingest,
     route_after_weights,
 )
+from avalia.graph.serde import avalia_checkpoint_serde
 from avalia.graph.state import AvaliaState
 from avalia.judge.framework import GatewayLike, JudgeCache
 from avalia.persistence.repository import ReportRepository
@@ -91,4 +92,7 @@ def build_avalia_graph(
     g.add_edge("compare_history", "build_report")
     g.add_edge("build_report", END)
 
-    return g.compile(checkpointer=checkpointer or MemorySaver())
+    # M11: checkpointer com serde endurecido (tipos avalia.* registrados) — HITL durável e
+    # à prova de modo estrito/`PostgresSaver`. Quem injeta o próprio checkpointer (ex.: serviço
+    # com Postgres) deve construí-lo com `avalia_checkpoint_serde()`.
+    return g.compile(checkpointer=checkpointer or MemorySaver(serde=avalia_checkpoint_serde()))

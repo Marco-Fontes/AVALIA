@@ -26,6 +26,7 @@ from avalia.domain.contracts import (
 from avalia.domain.enums import Confidence, Dimension, Urgency
 from avalia.domain.tsm import TargetStaticModel
 from avalia.domain.weights import WeightProfile
+from avalia.extract.registry import is_structural_only
 
 _URGENCY_ORDER = {Urgency.CRITICO: 0, Urgency.IMPORTANTE: 1, Urgency.SUGESTAO: 2}
 _DIM_ORDER = {d: i for i, d in enumerate(Dimension)}
@@ -184,6 +185,14 @@ def build_report(
     if tsm.coverage.sampled:
         known_limitations.append(
             f"Arquivos não analisados a fundo (best-effort): {', '.join(tsm.coverage.sampled)}."
+        )
+    # M10/RNF-08: arquivos TS/JS são analisados SÓ estruturalmente (tree-sitter, sem inferência de
+    # tipos) — confiança reduzida declarada para as conclusões que dependem deles.
+    structural = [p for p in tsm.coverage.fully_analyzed if is_structural_only(p)]
+    if structural:
+        known_limitations.append(
+            f"Análise estrutural (sem inferência de tipos) de {len(structural)} arquivo(s) TS/JS "
+            "via tree-sitter — confiança reduzida nas conclusões que dependem deles (RNF-08)."
         )
     if tsm.readability.unreadable_files:
         known_limitations.append(

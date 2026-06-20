@@ -46,6 +46,35 @@ def test_cli_missing_path_returns_error(tmp_path: Path, capsys):
     assert "não encontrado" in capsys.readouterr().err
 
 
+def test_cli_history_dir_persists_and_compares_versions(tmp_path: Path, capsys):
+    # M8-1/M8-2: com --history-dir, a 2ª execução do mesmo target compara com a anterior (RF-28/29).
+    hist = tmp_path / "hist"
+    out1, out2 = tmp_path / "v1", tmp_path / "v2"
+    assert (
+        main([str(_FIXTURE), "--out", str(out1), "--target-id", "X", "--history-dir", str(hist)])
+        == 0
+    )
+    capsys.readouterr()  # descarta o resumo da 1ª execução
+    assert (
+        main([str(_FIXTURE), "--out", str(out2), "--target-id", "X", "--history-dir", str(hist)])
+        == 0
+    )
+
+    data = json.loads((out2 / "laudo.json").read_text(encoding="utf-8"))
+    assert data["comparison"] is not None  # 2ª execução comparou com a anterior
+    assert "Comparação vs. anterior" in capsys.readouterr().out
+    assert len(list(hist.glob("*.json"))) == 2  # dois laudos persistidos
+
+
+def test_cli_no_history_dir_keeps_zero_config_behavior(tmp_path: Path, monkeypatch):
+    # Sem --history-dir (e sem AVALIA_PG_DSN): nada é persistido e não há comparação (RNF-11).
+    monkeypatch.delenv("AVALIA_PG_DSN", raising=False)  # CI pode definir o DSN; isolamos
+    out = tmp_path / "o"
+    main([str(_FIXTURE), "--out", str(out), "--target-id", "X"])
+    data = json.loads((out / "laudo.json").read_text(encoding="utf-8"))
+    assert data["comparison"] is None
+
+
 def test_cli_no_source_returns_error_without_report(tmp_path: Path, capsys):
     (tmp_path / "README.md").write_text("# só docs, sem código\n", encoding="utf-8")
     out = tmp_path / "o"
