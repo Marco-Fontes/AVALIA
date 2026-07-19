@@ -10,7 +10,7 @@
 
 ### Contexto
 
-Sistemas multiagentes de IA são compostos por múltiplos agentes LLM interconectados, ferramentas, orquestradores, harnesses de teste e configurações que interagem de forma complexa. À medida que esses sistemas são adotados em produção, a pergunta "este sistema está pronto?" tornou-se difícil de responder com rigor: não existe hoje uma metodologia padronizada para avaliar a qualidade de *construção* de um sistema multiagente — independentemente de se executá-lo.
+Sistemas multiagentes de IA são compostos por múltiplos agentes (com LLM ou SLM) interconectados, ferramentas, orquestradores, harnesses de teste e configurações que interagem de forma complexa. À medida que esses sistemas são adotados em produção, a pergunta "este sistema está pronto?" tornou-se difícil de responder com rigor: não existe hoje uma metodologia padronizada para avaliar a qualidade de *construção* de um sistema multiagente, independentemente de se executá-lo.
 
 ### Problema
 
@@ -23,13 +23,13 @@ Equipes de engenharia, tech leads e revisores de arquitetura que precisam decidi
 
 ### Solução
 
-O **AVALIA** é um sistema avaliador que recebe como entrada os artefatos de um sistema multiagente de IA (código-fonte, harness, prompts, configurações e instrumentação) e produz um laudo técnico estruturado com pontuações por dimensão de qualidade, pontuação agregada, nível de confiança e recomendações priorizadas — sem executar o sistema-alvo (Fase 1).
+O **AVALIA** é um sistema avaliador que recebe como entrada os artefatos de um sistema multiagente de IA (código-fonte, harness, prompts, configurações e instrumentação) e produz um laudo técnico estruturado com pontuações por dimensão de qualidade, pontuação agregada, nível de confiança e recomendações priorizadas, sem executar o sistema-alvo (Fase 1).
 
-O AVALIA é o **avaliador**. O sistema multiagente sendo avaliado é o **sistema-alvo** — ele é apenas a entrada do AVALIA.
+O AVALIA é o **avaliador**. O sistema multiagente sendo avaliado é o **sistema-alvo**. Ele é apenas a entrada do AVALIA.
 
 ### Princípio de Design Norteador
 
-O AVALIA opera sob o princípio **"decide sozinho, declara o que assumiu, e só chama o humano quando há risco"**. Sempre que possível, o AVALIA classifica, infere e decide automaticamente, declarando explicitamente no laudo cada premissa assumida e a confiança correspondente; ele só interrompe para aprovação humana quando a ação é arriscada (executar o alvo) ou quando uma divergência interna não pôde ser resolvida automaticamente.
+O AVALIA opera sob o princípio **"decide sozinho, declara o que assumiu, e só chama o humano quando há risco"**. Sempre que possível, o AVALIA classifica, infere e decide automaticamente, declarando explicitamente no laudo cada premissa assumida e a confiança correspondente. Ele só interrompe para aprovação humana quando a ação é arriscada (executar o alvo) ou quando uma divergência interna não pôde ser resolvida automaticamente.
 
 ---
 
@@ -58,7 +58,7 @@ O AVALIA opera sob o princípio **"decide sozinho, declara o que assumiu, e só 
 - NOO2. O AVALIA não corrige o sistema-alvo nem gera código de correção.
 - NOO3. O AVALIA não executa qualquer parte do sistema-alvo em Fase 1.
 - NOO4. O AVALIA **não recusa** a avaliação de um sistema por ele não ser claramente multiagente. Em vez disso, classifica o sistema (multiagente / agente único-borderline) e avalia mesmo assim, com ressalvas declaradas no laudo (ver Seção 5.2 e RF-08).
-- NOO5. O AVALIA não substitui revisão humana — ele auxilia e estrutura, mas a decisão final de aprovação para produção permanece com o humano.
+- NOO5. O AVALIA não substitui revisão humana. Ele auxilia e estrutura, mas a decisão final de aprovação para produção permanece com o humano.
 - NOO6. O AVALIA não avalia aspectos puramente de negócio (valor de negócio da funcionalidade implementada, ROI, aderência a requisitos de produto).
 - NOO7. O AVALIA não implementa autenticação ou controle de acesso de usuários na Fase 1 (ver S-03 e Registro de Decisões EC-05).
 
