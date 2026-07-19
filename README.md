@@ -2,7 +2,7 @@
 
 **Avaliador ESTÁTICO de sistemas multiagentes de IA (Fase 1).** O AVALIA recebe os artefatos de um
 sistema-alvo (código, prompts, config, harness) e produz um **laudo técnico** com pontuação por
-dimensão, veredito, nível de confiança e recomendações priorizadas — **sem nunca executar o alvo**
+dimensão, veredito, nível de confiança e recomendações priorizadas, **sem nunca executar o alvo**
 (RNF-05/S-04). O alvo é apenas entrada, lido como texto.
 
 Fontes da verdade: [spec.md](spec.md) · [plan.md](plan.md) · [tasks.md](tasks.md) ·
