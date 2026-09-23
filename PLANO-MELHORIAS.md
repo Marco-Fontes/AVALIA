@@ -1,5 +1,8 @@
 # Plano de Implementação — Melhorias do AVALIA (pós-dogfooding)
 
+> **Status (2026-09-22): concluído** (Frentes 1–4, ver PROGRESS §2i). O trabalho seguinte está em
+> [PLANO-QUALIDADE.md](PLANO-QUALIDADE.md) (marco MQ).
+
 > Documento de trabalho, **autocontido**, para implementar em outra sessão. **Não é fonte da
 > verdade** (spec/plan/tasks permanecem imutáveis). Substitui o antigo `PLANO-100.md` (a ideia de
 > "subir para 100" foi descartada pelo dono: o teto 100 fica reservado para a Fase 2 dinâmica).

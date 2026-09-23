@@ -1,8 +1,8 @@
 # AVALIA — Especificação do Sistema (Fase SPEC)
 
-**Versão:** 0.4  
-**Data:** 2026-05-31  
-**Status:** Ambiguidades resolvidas (ver Seção 11 — Registro de Decisões). v0.4 acrescenta RNF-12 (resiliência operacional do avaliador / fallback de modelos, padrão Opus→Sonnet configurável e cross-provider) e CB-10, e afina RF-DIM-R2/C1 para nomear fallback de modelo na análise do alvo.
+**Versão:** 0.5  
+**Data:** 2026-09-22  
+**Status:** Ambiguidades resolvidas (ver Seção 11 — Registro de Decisões). v0.4 acrescenta RNF-12 (resiliência operacional do avaliador / fallback de modelos, padrão Opus→Sonnet configurável e cross-provider) e CB-10, e afina RF-DIM-R2/C1 para nomear fallback de modelo na análise do alvo. **v0.5** (auditoria de qualidade — decisões DQ-01..DQ-04, Seção 11): explicita os parâmetros de pontuação como configuração (RNF-06), define as unidades do teto de custo (tokens e, opcionalmente, moeda — RF-12/CA-13), acrescenta o consumo de orçamento aos metadados do laudo (4.2.8) e declara a limitação estática da verificação de retry/fallback (RF-DIM-R2). Nenhuma decisão EC-01..EC-10 foi alterada.
 
 ---
 
@@ -124,7 +124,7 @@ O usuário também fornece, opcionalmente, **configurações do avaliador**:
 - Pesos por dimensão de qualidade. Quando não fornecidos, o AVALIA aplica automaticamente um **perfil de pesos** inferido do tipo de sistema-alvo (ver Seção 5.2). Configuração explícita do usuário sempre sobrescreve o perfil inferido.
 - Limiar de pontuação agregada para classificação de aprovação/reprovação.
 - Limiar de confiança mínima para que um julgamento seja incluído na pontuação agregada.
-- Teto de custo/tempo de avaliação (interrompe com laudo parcial honesto — ver RF-12 e CB-05).
+- Teto de custo/tempo de avaliação (interrompe com laudo parcial honesto — ver RF-12 e CB-05). O teto de custo é expresso em **tokens** (sempre aplicável) e, opcionalmente, em **moeda**, quando houver tabela de preços por modelo configurada (DQ-01).
 
 ### 4.2 Saídas — O Laudo
 
@@ -179,6 +179,7 @@ Para cada uma das sete dimensões aplicáveis, o laudo contém:
 - Indicação de quais componentes do artefato foram recebidos e quais estavam ausentes
 - **Cobertura de análise:** o que foi analisado integralmente vs. amostrado/sumarizado (ver RF-12)
 - **Substituições de modelo:** se algum nó de julgamento usou um modelo de fallback (em vez do modelo primário), o laudo declara qual nó, qual substituição e o impacto na confiança daquela dimensão (ver RNF-12)
+- **Consumo de orçamento:** tokens, custo (quando houver tabela de preços) e tempo consumidos, comparados aos tetos configurados, e quais dimensões foram degradadas por atingir o teto (ver RF-12, CA-13). Custo não calculável por falta de preço é declarado, nunca omitido (DQ-01)
 - Lista de limitações conhecidas desta avaliação específica
 
 ---
@@ -247,7 +248,7 @@ Cada julgamento deve incluir nível de confiança explícito (alto / médio / ba
 *Critério:* Dado um artefato com harness de testes ausente, quando avaliado na dimensão Qualidade e Correção, então o nível de confiança é "baixo" com justificativa "ausência de harness de testes impede avaliação de maquinaria de verificação".
 
 **RF-12 — Degradação graciosa para artefatos grandes**  
-Diante de artefatos muito grandes, o AVALIA não recusa por tamanho; ele prioriza automaticamente os arquivos de maior sinal (definição do grafo/orquestração, prompts, ferramentas, configuração, harness de teste) e amostra ou sumariza o restante, declarando no laudo o que foi analisado integralmente vs. amostrado e o impacto na confiança. Um teto configurável de custo/tempo pode interromper a análise, produzindo um laudo parcial honesto.
+Diante de artefatos muito grandes, o AVALIA não recusa por tamanho; ele prioriza automaticamente os arquivos de maior sinal (definição do grafo/orquestração, prompts, ferramentas, configuração, harness de teste) e amostra ou sumariza o restante, declarando no laudo o que foi analisado integralmente vs. amostrado e o impacto na confiança. Um teto configurável de custo/tempo pode interromper a análise, produzindo um laudo parcial honesto. O custo é contabilizado a partir do consumo **real** das chamadas de julgamento: em tokens (teto sempre aplicável) e, havendo tabela de preços configurada, em moeda (DQ-01).
 
 *Critério:* Dado um artefato que excede o teto de custo/tempo configurado, quando avaliado, então o laudo é emitido como parcial, declara a cobertura de análise e marca como reduzida a confiança das dimensões afetadas.
 
@@ -289,7 +290,7 @@ Cada achado deve citar a localização no artefato que o embasou (arquivo, trech
 
 #### 5.3.7 Dimensão: Robustez
 - **RF-DIM-R1 — Tratamento de erro estruturado:** verificar se falhas de chamadas externas/ferramentas são tratadas (erro capturado, não exceção solta).
-- **RF-DIM-R2 — Retry e fallback:** verificar presença de lógica de retry (com/sem backoff) e fallback, incluindo explicitamente **fallback de modelo/provedor de LLM** (degradação para modelo alternativo quando o primário falha ou fica indisponível). A ausência de fallback de modelo é um achado de robustez de primeira classe (cruza com RF-DIM-C1).
+- **RF-DIM-R2 — Retry e fallback:** verificar presença de lógica de retry (com/sem backoff) e fallback, incluindo explicitamente **fallback de modelo/provedor de LLM** (degradação para modelo alternativo quando o primário falha ou fica indisponível). A ausência de fallback de modelo é um achado de robustez de primeira classe (cruza com RF-DIM-C1). **Limitação estática (DQ-04):** a presença declarada de retry/fallback no código não prova sua eficácia sob falha real (ex.: exceções do provedor não capturadas pelo mecanismo); a dimensão declara essa limitação no laudo (RNF-08), e a eficácia só é verificável na Fase 2.
 - **RF-DIM-R3 — Validação e anti-injeção:** verificar validação de entradas externas e guard-rails anti-injeção de prompt nos prompts e ferramentas.
 
 ### 5.4 Agregação e Pontuação
@@ -379,7 +380,7 @@ O laudo deve deixar inequívoco, para cada dimensão comportamental, o que está
 Requisito absoluto, não relaxável por configuração.
 
 **RNF-06 — Configurabilidade de pesos e limiares**  
-Pesos de agregação e limiares de aprovação são parâmetros da avaliação, não constantes internas. O perfil inferido é sempre sobrescrevível.
+Pesos de agregação e limiares de aprovação são parâmetros da avaliação, não constantes internas. O perfil inferido é sempre sobrescrevível. Os **parâmetros de pontuação** (nota base e penalidades por urgência de achado) e os tetos de orçamento também são parâmetros da avaliação (DQ-03).
 
 **RNF-07 — Rastreabilidade de evidências**  
 Todo achado deve ser rastreável ao trecho do artefato que o originou.
@@ -446,7 +447,7 @@ O modelo primário e o de fallback por tipo de nó são **configuráveis** (RNF-
 **Dado** que o usuário solicita avaliação dinâmica (Fase 2), **Quando** o AVALIA está prestes a executar qualquer componente do sistema-alvo, **Então** o sistema exibe a ação planejada, aguarda confirmação ativa e só prossegue após confirmação explícita — nunca por omissão ou timeout.
 
 ### CA-13 — Laudo parcial honesto para artefato grande (RF-12)
-**Dado** um artefato que excede o teto de custo/tempo configurado, **Quando** avaliado, **Então** o laudo é emitido como parcial, declara a cobertura (integral vs. amostrado) e reduz a confiança das dimensões afetadas.
+**Dado** um artefato que excede o teto de custo/tempo configurado, **Quando** avaliado, **Então** o laudo é emitido como parcial, declara a cobertura (integral vs. amostrado) e reduz a confiança das dimensões afetadas. O teto é verificado contra o consumo **real** (tokens e, se houver tabela de preços, moeda) e o laudo declara o consumo vs. teto (4.2.8).
 
 ### CA-14 — Reproduzibilidade estatística (RNF-01)
 **Dado** o mesmo artefato submetido duas vezes com as mesmas configurações, **Quando** os laudos são comparados, **Então** os vereditos por dimensão e os achados críticos coincidem, e as checagens estáticas determinísticas são idênticas.
@@ -545,9 +546,20 @@ As 10 ambiguidades da versão 0.1 foram resolvidas e incorporadas. Registro para
 | **EC-09** | Sem limite rígido de tamanho; degradação graciosa por priorização de arquivos de maior sinal + amostragem/sumarização do resto; teto configurável de custo/tempo interrompe com laudo parcial honesto. → RF-12, CB-05. |
 | **EC-10** | Nenhum número arbitrário de concordância fixado na Spec. Métrica primária = concordância em nível de veredito por dimensão; limiar de "confiável" calibrado empiricamente após o primeiro lote. → MS-04, D-04. |
 
+### Decisões da revisão v0.5 (auditoria de qualidade, 2026-09-22)
+
+Decisões do dono tomadas após a auditoria de qualidade. Não alteram EC-01..EC-10; tornam explícito o que o código deve cumprir.
+
+| ID | Decisão |
+|---|---|
+| **DQ-01** | Teto de custo em **duas unidades**: tokens (teto principal, sempre aplicável) e moeda (só quando há tabela de preços por modelo na configuração; sem preço, a impossibilidade de calcular é declarada no laudo). → RF-12, CA-13, 4.2.8. |
+| **DQ-02** | O juiz-LLM **não emite achado crítico**: seus achados são limitados a sugestão/importante; crítico é reservado a fatos determinísticos (opinião nunca pesa como fato). → RF-10, RF-19, RF-20. |
+| **DQ-03** | Parâmetros de pontuação (nota base, penalidades) são configuração, não constantes internas. → RNF-06, 4.2.6. |
+| **DQ-04** | A dimensão Robustez declara que presença de retry/fallback ≠ eficácia (limitação da análise estática). → RF-DIM-R2, RNF-08. |
+
 ### Consequência de design registrada
 EC-02 + EC-07 (e EC-01) tornam a **classificação do sistema-alvo** insumo de múltiplas decisões downstream (perfil de pesos, dimensões aplicáveis, ressalvas, tipo de veredito). Por isso a classificação foi elevada a **requisito funcional de primeira classe** (Seção 5.2), com confiança própria reportada e meta-avaliação dedicada (MS-09) — e não tratada como detalhe da ingestão.
 
 ---
 
-*Fim da Especificação — versão 0.4. Pronta para a fase PLAN.*
+*Fim da Especificação — versão 0.5. Pronta para a fase PLAN.*

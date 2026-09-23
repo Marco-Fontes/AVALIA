@@ -1,11 +1,13 @@
 # AVALIA — Plano de Tarefas (Fase TASK)
 
-**Versão:** 1.3  
-**Data:** 2026-05-31  
-**Fontes da verdade:** [spec.md](spec.md) v0.4 · [plan.md](plan.md) v1.3  
+**Versão:** 1.4  
+**Data:** 2026-09-22  
+**Fontes da verdade:** [spec.md](spec.md) v0.5 · [plan.md](plan.md) v1.4  
 **Escopo:** Fase 1 (avaliação estática) completa. Fase 2 entra apenas como ganchos vazios.
 
 **Revisão 1.1 — shift-left de salvaguardas (5 ajustes):** (1) invariante RNF-05 (não-execução do alvo) intrínseco desde M1 em T-102, com T-1006 como guarda contínua; (2) anti-injeção fundida no framework de juiz T-302 (intrínseca em M1), com T-310 reconvertido em teste adversarial (E10); (3) T-1005 separa reprodutibilidade em dois regimes (determinístico bit-idêntico vs. juiz estável por faixa); (4) `dynamic_metrics?` reservado como slot opaco já em T-004; (5) fronteira de T-902/T-1007 explícita (harness em escopo; calibração significativa bloqueada por D-03/D-04). Princípio: *tudo que toca conteúdo não confiável do alvo ou o invariante de não-execução é intrínseco desde M1, nunca tarefa posterior.*
+
+**Revisão 1.4 — auditoria de qualidade (spec v0.5 DQ-01..DQ-04; plan v1.4 §3.2c–3.2g):** novas tarefas T-008 (pontuação como config), T-107 (detector de harness único), T-312 (achados do juiz: urgência limitada + evidência por símbolo), T-313 (limitação estática da Robustez), T-805 (orçamento com consumo real) e T-1009 (gate de cobertura); DoD reforçado em T-302, T-802 e T-1008 (exceções **reais** do provedor, backoff verificado, custo não injetado). Marco **MQ** na Seção 13. Nenhuma tarefa executa o alvo nem implementa a Fase 2.
 
 > Esta fase decompõe o plano em tarefas executáveis, ordenadas e rastreáveis. Cada
 > tarefa tem: dependências, requisitos atendidos (RF/RNF/CA/CB/MS/D), componente do
@@ -84,6 +86,12 @@
 - **Req:** RNF-06, RF-16; CA-03, CA-04.
 - **DoD:** editar prioridades = editar YAML; perfil `neutro` = pesos iguais; loader valida que cada perfil soma 1.
 
+### T-008 — `ScoringConfig`: parâmetros de pontuação como config *(v1.4, DQ-03)*
+- **Dep:** T-005, T-301
+- **Faz:** move nota base e penalidades por urgência (90; 22/9/3) e os parâmetros da Trajetória (85; 25) de constantes em `evaluators/` para `EvaluatorConfig.scoring`, validados (0–100). Os avaliadores recebem `scoring` com default (sem quebrar chamadas existentes). O teto exibido de prontidão estática passa a derivar da nota base, salvo valor explícito, que não pode ser menor que ela.
+- **Req:** RNF-06, 4.2.6; plan §3.2f.
+- **DoD:** laudos com a config padrão **bit-idênticos** aos anteriores (T-1005); alterar a config altera a nota; guarda de AST em `tests/guards` falha se houver constante `*_PENALTY`/`*_SCORE` em `evaluators/`.
+
 ---
 
 ## 3. Épico E1 — Motor de Análise Estática (TSM) + Extrator Python
@@ -124,6 +132,12 @@
 - **Faz:** identifica divergências internas do artefato (config declara modelo X, código usa Y; prompt assume fluxo inexistente) como `Finding`.
 - **Req:** CB-08; RNF-08.
 - **DoD:** fixture contraditório → `Finding` de contradição com evidência; reduz confiança das dimensões afetadas.
+
+### T-107 — Detector de harness único *(v1.4)*
+- **Dep:** T-103, T-201
+- **Faz:** `extract/harness.py` com `is_harness_path` por **partes do caminho** (diretórios `tests`/`test`/`__tests__`; `test_*.py`, `*_test.py`, `*.test.*`, `*.spec.*`; `conftest.py`) + sinais de config de teste; usado por N0 (inventário) e pelo TSM (`has_harness`), eliminando as duas heurísticas divergentes.
+- **Req:** RF-DIM-Q1, CA-06, CB-01; plan §3.2g.
+- **DoD:** `latest_version.py` → não é harness; `tests/helpers.py` e `src/foo.test.ts` → são; ingest e TSM concordam em todos os casos de teste; suíte de aceite verde (mudança de confiança em fixture, se houver, justificada no PR).
 
 ---
 
@@ -170,6 +184,7 @@
 - **Resiliência escalonada (RNF-12, parte da definição do wrapper):** o juiz acessa o modelo **via `ModelGateway` (T-007)**, nunca um cliente de provedor direto. (1) erro transitório → **retry no mesmo modelo** com backoff (config T-005), preservando RNF-01; (2) saída estruturada malformada (ou structured output incompatível no provedor) → **re-solicitação**; (3) modelo indisponível → **fallback para o modelo configurado** (default Opus→Sonnet), registrando a substituição nos metadados do laudo e **reduzindo a confiança** da dimensão (RNF-08/RNF-09) — nunca silencioso; (4) esgotado o fallback → sinaliza para **laudo parcial** (via T-802). Entregue junto do wrapper em M1.
 - **Req:** RF-10, RF-20 (base), RNF-01 (estatística), RNF-02, **RNF-12**; **plan §9 R8 (anti-injeção), R9 (resiliência)**; resoluções #2, #2b e #3.
 - **DoD:** juiz retorna `reasoning` + `confidence` + `FindingType` válido; rubrica versionada registrada; **conteúdo do alvo sempre delimitado como não confiável** (verificado por T-310); **fallback de modelo nunca silencioso** — toda substituição declarada (verificado por T-1008).
+- **DoD reforçado (v1.4, plan §3.2c):** o gateway traduz as exceções **reais** do provedor (transitório / indisponível / malformado) via `invoke_structured` com `include_raw=True`; exceção desconhecida na chamada → fallback declarado, nunca exceção propagada; backoff exponencial com teto (`max_backoff_seconds`) **verificado com relógio falso**.
 
 ### T-303..T-309 — Avaliadores por dimensão
 Cada avaliador combina checks determinísticos (T-301) + juiz-LLM (T-302) conforme o split do plan §3.2, emitindo `DimensionResult` completo.
@@ -199,6 +214,18 @@ Cada avaliador combina checks determinísticos (T-301) + juiz-LLM (T-302) confor
 - **Faz:** liga os 7 avaliadores em fan-out a partir de N3; fan-in com reducer `operator.add`; **ordenação estável por `Dimension`** antes da agregação.
 - **Req:** plan §3.4/§5; RNF-01 (independência da ordem).
 - **DoD:** resultado independe da ordem de chegada dos ramos.
+
+### T-312 — Achados do juiz: urgência limitada + evidência por símbolo *(v1.4, DQ-02)*
+- **Dep:** T-302
+- **Faz:** `JudgeVerdict` ganha `urgency` ∈ {sugestão, importante} e `evidence_symbol`; `finding_statement` obrigatório quando há `finding_type`. Os símbolos do TSM vão ao juiz dentro dos delimitadores de dado não confiável; o símbolo é validado contra o TSM (inexistente → âncora do projeto + nota).
+- **Req:** RF-10, RF-19, RF-29, RNF-07; regra 6; plan §3.2d.
+- **DoD:** urgência crítica rejeitada pelo schema; identidade de achado do juiz estável entre execuções com o mesmo símbolo; símbolo injetado pelo alvo não vira evidência (caso adicional em T-310); migração de identidade declarada (plan R11).
+
+### T-313 — Limitação estática declarada na Robustez *(v1.4, DQ-04)*
+- **Dep:** T-309
+- **Faz:** a dimensão Robustez passa a preencher `static_limitations`: presença de retry/fallback não prova eficácia sob falha real (eficácia só na Fase 2).
+- **Req:** RF-DIM-R2, RNF-08; plan §3.2e.
+- **DoD:** todo laudo traz a limitação na Robustez; nota e veredito inalterados.
 
 ---
 
@@ -327,6 +354,7 @@ Cada avaliador combina checks determinísticos (T-301) + juiz-LLM (T-302) confor
 - **Faz:** checagem transversal de `BudgetState`; ao estourar teto, roteia para N7 com `status=partial` + cobertura. **Adição RNF-12:** o mesmo caminho de laudo parcial é reusado quando a política de fallback de modelo se esgota numa dimensão (modelo primário e fallback indisponíveis) — a dimensão é marcada não avaliável e a avaliação prossegue para laudo parcial honesto, sem abortar.
 - **Req:** RF-12, **RNF-12**; CA-13, **CB-10**.
 - **DoD:** teto baixo → laudo parcial honesto (CA-13); fallback esgotado numa dimensão → dimensão marcada não avaliável + laudo parcial, sem abort (CB-10).
+- **DoD reforçado (v1.4):** o estouro é provocado pelo consumo **reportado** pelas chamadas (via T-805), não por `BudgetState` injetado.
 
 ### T-803 — Streaming `astream_events`
 - **Dep:** T-801
@@ -339,6 +367,12 @@ Cada avaliador combina checks determinísticos (T-301) + juiz-LLM (T-302) confor
 - **Faz:** posição reservada `execution_gate` (no-op, ausente do grafo Fase 1); porta `TargetRunner` (vazia); gancho `TestCaseGenerator` consumindo o TSM. O campo `dynamic_metrics` **já existe** como slot opaco em `DimensionResult` (reservado em T-004 — ajuste #4); aqui a Fase 2 apenas **refina o tipo** e o popula, sem migrar o contrato de M0.
 - **Req:** S-05, D-01, O7..O9, RF-23 (padrão de gate reaproveitável).
 - **DoD:** interfaces declaradas, **não** referenciadas no caminho Fase 1; nenhum código executa o alvo (RNF-05); contrato de M0 não é alterado (slot já reservado).
+
+### T-805 — `BudgetMeter`: orçamento com consumo real *(v1.4, DQ-01)*
+- **Dep:** T-302, T-802
+- **Faz:** medidor por execução (lock; via `configurable`, fora do checkpoint) que acumula tokens do `StructuredCallResult`, custo em moeda quando há `model_prices` e tempo; `token_ceiling` (sempre aplicável) e `cost_ceiling` (só com preços). O juiz checa o teto **antes de cada ângulo**; estourado → `JudgeContribution.partial_reason="teto"`. `JudgeCache` passa a ser por execução. Âncora de tempo persistida em horário real. Laudo ganha `metadata.budget_usage`; CLI ganha `--token-ceiling`, `--cost-ceiling`, `--time-ceiling`.
+- **Req:** RF-12, CA-13, RNF-12, 4.2.8; plan §3.3/§3.5.
+- **DoD:** teto de tokens baixo + gateway simulado que reporta uso → dimensões seguintes degradam com razão "teto" e laudo parcial com `budget_usage`; sem preço → custo declarado como não calculável; teto de tempo testado com relógio falso; retomada de HITL sem erro de tempo.
 
 ---
 
@@ -407,6 +441,13 @@ Cada avaliador combina checks determinísticos (T-301) + juiz-LLM (T-302) confor
 - **Faz:** com provedor de modelo **mockado**, simula erro transitório, saída malformada e indisponibilidade do modelo primário; verifica a política escalonada (retry mesmo modelo → re-prompt → fallback declarado → laudo parcial). **Nenhuma chamada real de modelo; nenhuma execução do alvo.**
 - **Req:** RNF-12; CB-10.
 - **DoD:** (a) erro transitório → retry no mesmo modelo, sem mudança de veredito; (b) indisponibilidade → fallback aplicado **e declarado** nos metadados, com confiança reduzida na dimensão (nunca silencioso); (c) fallback esgotado → dimensão não avaliável + `status=partial` (CB-10). Roda desde M1 (junto de T-302).
+- **DoD reforçado (v1.4):** as simulações usam exceções com a **forma dos SDKs** (nome de classe e `status_code`, ex.: 429, 404, 401, erro de parse), não só as exceções internas; inclui teste de grafo em que o gateway sempre falha → laudo parcial, sem abort.
+
+### T-1009 — Gate de cobertura de testes *(v1.4)*
+- **Dep:** T-1003, T-1004
+- **Faz:** `pytest-cov` nas dependências de desenvolvimento; `[tool.coverage]` com `branch=true` e `fail_under` = piso medido; passo de cobertura no CI.
+- **Req:** DoD global (b); plan §8.
+- **DoD:** CI falha se a cobertura cair abaixo do piso; comando documentado no README e no CLAUDE.md.
 
 ---
 
@@ -420,6 +461,7 @@ Cada avaliador combina checks determinísticos (T-301) + juiz-LLM (T-302) confor
 - **M5 — Robustez de escala + streaming + ganchos Fase 2:** T-105/T-802, T-803, T-804, T-104, T-106.
 - **M6 — Observabilidade + meta-avaliação:** E9.
 - **M7 — Suíte de aceite fechada:** E10 completo (verde em todos os CA/CB).
+- **MQ — Auditoria de qualidade (v1.4):** T-302/T-1008 reforçados (resiliência real) → T-107 → T-008 → T-805 (+ T-802 reforçado) → T-312 → T-313 → T-1009. Critério: gates verdes, suíte de aceite intacta, laudos com config padrão bit-idênticos (exceto a limitação nova da Robustez e a evidência dos achados do juiz, ambas declaradas).
 
 ---
 
@@ -437,14 +479,14 @@ Cada avaliador combina checks determinísticos (T-301) + juiz-LLM (T-302) confor
 | RF-09 | T-303..T-309 |
 | RF-10 | T-004, T-302, T-1003 |
 | RF-11 | T-004, T-303..T-309 |
-| RF-12 | T-105, T-802 |
+| RF-12 | T-105, T-802, T-805 |
 | RF-13 | T-305, T-306, T-307, T-1003 |
 | RF-14 | T-002, T-102 |
 | RF-15 | T-501 |
 | RF-16 | T-204, T-006 |
 | RF-17 | T-204 |
 | RF-18 | T-005, T-501 |
-| RF-19 | T-503 |
+| RF-19 | T-503, T-312 |
 | RF-20 | T-401, T-402 |
 | RF-21 | T-204 |
 | RF-22 | T-502 |
@@ -454,26 +496,26 @@ Cada avaliador combina checks determinísticos (T-301) + juiz-LLM (T-302) confor
 | RF-26 | T-301, T-1005 |
 | RF-27 | T-702 |
 | RF-28 | T-601, T-603 |
-| RF-29 | T-003, T-604, T-605 |
+| RF-29 | T-003, T-604, T-605, T-312 |
 | RF-DIM-C1/2/3 | T-303 (C1 inclui fallback de modelo → `SEM_FALLBACK_MODELO`, T-003) |
 | RF-DIM-P1/2 | T-304 |
-| RF-DIM-Q1/2 | T-305 |
+| RF-DIM-Q1/2 | T-305, T-107 |
 | RF-DIM-A1/2 | T-306 |
 | RF-DIM-H1/2 | T-307 |
 | RF-DIM-T1/2/3 | T-308 |
-| RF-DIM-R1/2/3 | T-309 (R2 inclui fallback de modelo → `SEM_FALLBACK_MODELO`, T-003; R3 anti-injeção do alvo: defesa em T-302, teste em T-310) |
+| RF-DIM-R1/2/3 | T-309 (R2 inclui fallback de modelo → `SEM_FALLBACK_MODELO`, T-003; R3 anti-injeção do alvo: defesa em T-302, teste em T-310); R2 limitação estática em T-313 |
 | RNF-01 | T-301, T-302, T-311, T-1005 |
 | RNF-02 | T-004, T-302 |
 | RNF-03 | T-004, T-203 |
 | RNF-04 | T-305, T-306, T-307 |
 | RNF-05 | T-102 (invariante intrínseco, M1), T-302 (não-confiança no alvo), T-1006 (guarda contínua desde M1), T-804 (ganchos não executam) |
-| RNF-06 | T-005, T-006, T-007 |
-| RNF-07 | T-002, T-102 |
-| RNF-08 | T-105, T-106, T-701 |
+| RNF-06 | T-005, T-006, T-007, T-008 |
+| RNF-07 | T-002, T-102, T-312 |
+| RNF-08 | T-105, T-106, T-701, T-313 |
 | RNF-09 | T-103, T-203 |
 | RNF-10 | T-405, T-701, T-703 |
 | RNF-11 | T-403, T-404 |
-| RNF-12 | T-005 (config primário+fallback+back-end), T-007 (`ModelGateway`, default Opus→Sonnet), T-302 (política escalonada), T-802 (parcial ao esgotar), T-1008 (teste) |
+| RNF-12 | T-005 (config primário+fallback+back-end), T-007 (`ModelGateway`, default Opus→Sonnet), T-302 (política escalonada), T-802 (parcial ao esgotar), T-1008 (teste), T-805 (orçamento real) |
 | MS-04/07/08/09 | T-902, T-1007 |
 | MS-10 | T-901 |
 | D-01 | T-804 |
@@ -481,10 +523,10 @@ Cada avaliador combina checks determinísticos (T-301) + juiz-LLM (T-302) confor
 | D-03/D-04 | T-902 |
 | CA-01..15 | T-1003, T-1004, T-1005 (CA-14), T-1006 (CA-12) |
 | CB-01..09 | T-1004 (+ T-104/T-106/T-105 nas origens) |
-| CB-10 | T-302, T-802, T-1008 (fallback de modelo do avaliador) |
+| CB-10 | T-302, T-802, T-1008 (fallback de modelo do avaliador; exceções reais do provedor — v1.4) |
 
 **Órfãos:** nenhum requisito sem tarefa. **Excesso:** T-804 é gancho vazio (justificado por S-05); o slot `dynamic_metrics` em T-004 é opaco/reservado (S-05), sem modelar a Fase 2; demais tarefas rastreiam a ≥1 requisito.
 
 ---
 
-*Fim do Plano de Tarefas — versão 1.3. Salvaguardas (RNF-05, anti-injeção) e resiliência de fallback de modelo (RNF-12, default Opus→Sonnet via `ModelGateway` configurável/cross-provider) intrínsecas desde M1. Pronto para execução a partir de M0.*
+*Fim do Plano de Tarefas — versão 1.4 (marco MQ: T-008, T-107, T-312, T-313, T-805, T-1009). Salvaguardas (RNF-05, anti-injeção) e resiliência de fallback de modelo (RNF-12, default Opus→Sonnet via `ModelGateway` configurável/cross-provider) intrínsecas desde M1. Pronto para execução a partir de M0.*
