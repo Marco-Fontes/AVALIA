@@ -109,3 +109,11 @@ def test_findings_index_preserved(repo):
     repo.save(record)
     got = repo.latest_for(tid)
     assert got is not None and got.findings_index == record.findings_index
+
+
+def test_consecutive_records_have_strictly_increasing_created_at():
+    # Relógio de parede com resolução grossa (15,6 ms no Windows) empatava laudos gravados em
+    # sequência, e `latest_for` desempatava arbitrariamente (teste intermitente). RF-28/RF-29.
+    meta = TargetMetadata(target_id=uuid4().hex, version="1")
+    stamps = [make_record(_report(50), meta).created_at for _ in range(50)]
+    assert all(a < b for a, b in zip(stamps, stamps[1:], strict=False))

@@ -9,7 +9,8 @@ Rastreabilidade: RF-28, RF-29, D-02; resolução #3.
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+import threading
+from datetime import UTC, datetime, timedelta
 from typing import Protocol
 from uuid import uuid4
 
@@ -39,13 +40,30 @@ def findings_index_of(report: EvaluationReport) -> list[str]:
     return sorted({f.identity for dr in report.dimensions for f in dr.findings})
 
 
+_CLOCK_LOCK = threading.Lock()
+_last_created_at: datetime | None = None
+
+
+def _next_created_at() -> datetime:
+    """`created_at` ESTRITAMENTE crescente no processo. O relógio de parede pode ter resolução
+    grossa (15,6 ms no Windows): dois laudos gravados em sequência ganhavam o mesmo instante e
+    `latest_for` desempatava arbitrariamente (RF-29 comparava com a versão errada)."""
+    global _last_created_at
+    with _CLOCK_LOCK:
+        now = datetime.now(UTC)
+        if _last_created_at is not None and now <= _last_created_at:
+            now = _last_created_at + timedelta(microseconds=1)
+        _last_created_at = now
+        return now
+
+
 def make_record(report: EvaluationReport, metadata: TargetMetadata) -> EvaluationReportRecord:
     """Monta o registro a partir do laudo + metadados do alvo (S-02)."""
     return EvaluationReportRecord(
         report_id=uuid4().hex,
         target_id=metadata.target_id,
         target_version=metadata.version,
-        created_at=datetime.now(UTC),
+        created_at=_next_created_at(),
         verdict=report.header.verdict.value,
         score=report.header.score,
         report=report,
