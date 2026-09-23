@@ -1,7 +1,7 @@
 # AVALIA — Registro de Execução (Fase 4 / Implementação)
 
-**Atualizado:** 2026-06-18 · **Iteração atual:** M11 — endurecimento de produção (serde durável + docs, ver §7).
-**Fontes da verdade (imutáveis):** [spec.md](spec.md) v0.4 · [plan.md](plan.md) v1.3 · [tasks.md](tasks.md) v1.3.
+**Atualizado:** 2026-09-22 · **Iteração atual:** MQ — auditoria de qualidade (emendas normativas feitas; código em andamento, ver §7 e [PLANO-QUALIDADE.md](PLANO-QUALIDADE.md)).
+**Fontes da verdade (imutáveis):** [spec.md](spec.md) v0.5 · [plan.md](plan.md) v1.4 · [tasks.md](tasks.md) v1.4 (emendadas em 2026-09-22 com aprovação do dono — decisões DQ-01..DQ-04; ver §7/MQ).
 
 Este documento é o **log rastreável** do que já foi executado. Não altera as fontes da verdade —
 apenas registra implementação, cobertura de requisitos e artefatos. Decisões de escopo
@@ -29,8 +29,9 @@ leitura de texto — pula `.git`/caches/`node_modules`/binários/grandes), roda 
 Ver [README.md](README.md). Arquivos: `src/avalia/{loader,cli,__main__}.py`, `[project.scripts]`;
 testes `tests/cli/`. Nada executa o alvo (RNF-05) — a guarda contínua cobre os novos módulos.
 
-Validação atual: `ruff check .` limpo · `ruff format --check .` limpo · `mypy src` limpo (69
-arquivos) · **191 testes verdes** (`py -m pytest -q`; +4 Postgres gated por `AVALIA_PG_DSN`). Gate
+Validação atual (2026-09-22, antes do MQ): `ruff check .` limpo · `ruff format --check .` limpo · `mypy src` limpo (76
+arquivos) · **262 testes verdes**, 4 pulados (Postgres). *Números do fechamento do M7, mantidos como histórico:* 69
+arquivos · **191 testes verdes** (`py -m pytest -q`; +4 Postgres gated por `AVALIA_PG_DSN`). Gate
 leve `-m fast`: 169 verdes, smoke de meta-avaliação **deselecionado** (fora do CI crítico).
 Suíte de aceite M7 (`tests/acceptance/`): 26 casos (CA/CB) + reprodutibilidade em dois regimes
 (determinístico bit-idêntico e juiz estável por faixa, ancorado em fato).
@@ -506,6 +507,27 @@ módulo estar na lista); `importlib` foi **evitado** (o guard RNF-05 o proíbe e
 imports diretos. Teste `tests/graph/test_m11_serde.py` (5) prova roundtrip por tipo **sob modo
 estrito** (0 avisos). README ganhou a seção **Produção**. 262 testes verdes.
 
+### MQ — Auditoria de qualidade *(🔄 em andamento — plano em [PLANO-QUALIDADE.md](PLANO-QUALIDADE.md))*
+A auditoria de 2026-09-22 (gates verdes; leitura do código e testes pontuais) achou defeitos que **a análise
+estática não enxerga no próprio AVALIA**: o dogfood dá 0 achados, mas (1) o juiz só tratava as exceções
+internas — um 429 real do provedor **abortava a avaliação** (viola RNF-12/CB-10); (2) `backoff_seconds` nunca
+era usado; (3) `accumulated_cost` nunca era incrementado (teto de custo sem efeito; tempo só checado antes do
+fan-out); (4) duas heurísticas de harness divergentes, com falsos positivos e negativos; (5) parâmetros de
+pontuação como constantes (RNF-06). Decisões do dono: **DQ-01** teto em tokens + moeda com tabela de preços;
+**DQ-02** juiz sem achado crítico; **DQ-03** pontuação em config; **DQ-04** Robustez declara que presença ≠
+eficácia. Emendas: spec v0.5, plan v1.4 (§3.2c–3.2g, §3.3, §3.5, R10–R11), tasks v1.4.
+
+| PR | Entrega | Tarefas | Estado |
+|---|---|---|---|
+| PR-D | Emendas normativas (spec/plan/tasks) + PLANO-QUALIDADE.md | — | ✅ |
+| PR-1 | Resiliência real do juiz: tradução de exceções + backoff | T-302/T-1008 reforçados | ⏳ |
+| PR-2 | Detector de harness único | T-107 | ⏳ |
+| PR-4 | Pontuação como config + guarda | T-008 | ⏳ |
+| PR-3 | Orçamento com consumo real + flags de teto na CLI | T-805, T-802 reforçado | ⏳ |
+| PR-5 | Achados do juiz (urgência limitada, evidência por símbolo) + limitação da Robustez | T-312, T-313 | ⏳ |
+| PR-6 | CLI com códigos de saída + gate de cobertura | T-1009 | ⏳ |
+| PR-7 | Melhorias finas (loader, mascaramento de segredos, tipagem) | — | ⏳ |
+
 ### M12+ — Fase 2: avaliação dinâmica *(roadmap — ⚠ PARE-E-CONFIRME, S-05)*
 Os **ganchos já existem** (T-804: `execution_gate`, `TargetRunner`, `TestCaseGenerator`, slot
 `dynamic_metrics`), mas **nada disso pode ser implementado sem confirmação humana explícita** —
@@ -534,7 +556,7 @@ M10 → M11 → M12 (só após decisão de negócio + confirmação humana).
   versões futuras bloqueiem tipos não-registrados — relevante para o `PostgresSaver` do M4.
 - **`StateGraph` tipado como `Any`** em `build_graph.py`: fronteira pragmática com o typing
   estrito do LangGraph (nós `Callable[[AvaliaState], dict]` não encaixam no `_Node[Never]`).
-- **Atrito de guardas (a melhorar):** `guard_no_target_exec` e `block_sql_destructive` são
-  baseados em regex e geram falso positivo quando docstrings/PR-body mencionam os literais
-  proibidos (`importlib`, `TRUNCATE`). Tornar `guard_no_target_exec` AST-aware (como o de
-  modelo, que ignora strings/comentários) é um aperfeiçoamento candidato.
+- **Atrito de guardas (a melhorar):** `block_sql_destructive` é baseado em regex e gera falso
+  positivo quando docstrings/PR-body mencionam os literais proibidos (`TRUNCATE`).
+  *(Atualizado em 2026-09-22: `guard_no_target_exec` já é AST-aware — ignora docstrings/comentários e
+  só usa regex quando `ast.parse` falha em edição parcial.)*

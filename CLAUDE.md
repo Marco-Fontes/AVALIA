@@ -4,7 +4,7 @@
 **Fase 1 = análise estática. NUNCA executa o alvo** (RNF-05/S-04), nem em teste.
 
 ## Fontes da verdade (imutáveis nesta fase)
-`spec.md` v0.4 · `plan.md` v1.3 · `tasks.md` v1.3. Decisões EC-01..EC-10 são fixas.
+`spec.md` v0.5 · `plan.md` v1.4 · `tasks.md` v1.4. Decisões EC-01..EC-10 (e DQ-01..DQ-04, spec §11) são fixas.
 Mudança que conflite com elas ou que implemente Fase 2 (S-05) → **PARE e confirme com o humano**.
 
 ## Stack

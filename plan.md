@@ -1,10 +1,12 @@
 # AVALIA — Plano Técnico (Fase PLAN)
 
-**Versão:** 1.3  
-**Data:** 2026-05-31  
-**Fonte da verdade:** [spec.md](spec.md) v0.2 (Registro de Decisões EC-01 a EC-10 — imutável nesta fase)  
+**Versão:** 1.4  
+**Data:** 2026-09-22  
+**Fonte da verdade:** [spec.md](spec.md) v0.5 (Registro de Decisões EC-01 a EC-10 — imutável nesta fase)  
 **Escopo de implementação:** Fase 1 (avaliação estática) completa; Fase 2 apenas como pontos de extensão.  
 **Decisões técnicas em aberto:** RESOLVIDAS (#1 Python-first plugável · #2 juízes Opus + LangChain structured output, sem PydanticAI · #3 Postgres+JSONB reusando PostgresSaver, identidade de achado por chave composta com taxonomia controlada · #4 divergência por faixas qualitativas, configurável · #5 HITL via CLI atrás de ApprovalProvider). Registro completo em [tasks.md](tasks.md) §0. Sem conflito com a Spec.
+
+**Revisão 1.4 — auditoria de qualidade (spec v0.5, DQ-01..DQ-04):** (1) tradução das exceções reais do provedor e backoff exponencial no `ModelGateway` (3.2c); (2) achados do juiz com urgência limitada e evidência validada contra o TSM (3.2d); (3) limitação estática declarada na Robustez (3.2e); (4) parâmetros de pontuação como config (3.2f); (5) detector de harness único (3.2g); (6) orçamento contabilizado pelo consumo real, medido por execução e checado antes de cada chamada de juiz (3.3, 3.5). Nada disso altera EC-01..EC-10, as faixas de 4.2.6 ou o cálculo com a config padrão.
 
 > Convenção de rastreabilidade: cada decisão referencia entre parênteses os requisitos que a justificam. A Seção 10 fecha a matriz requisito → componente. Itens não decidíveis sem o usuário estão marcados `[DECISÃO TÉCNICA EM ABERTO]` e consolidados na Seção 11.
 
@@ -140,6 +142,12 @@ Cada check de dimensão é classificado. **Determinístico** = derivado do TSM p
 
   - **3.2b — Abstração `ModelGateway` (acesso a modelo configurável/cross-provider).** Todo acesso a LLM passa por um `ModelGateway` que resolve `(tipo_de_nó, papel: primário|fallback)` → modelo concreto, isolando o resto do código do provedor. Back-ends: **direto Anthropic** (padrão Opus/Sonnet) e **OpenRouter** (base_url compatível com OpenAI, alcance cross-provider — Kimi etc.). O gateway centraliza: seleção primário/fallback, política de retry/backoff, e a **negociação de structured output** (preferir `with_structured_output`; degradar para tool-calling/JSON mode conforme a capacidade do modelo; se incompatível, tratar como saída malformada → passo 2 da RNF-12). Isso mantém a decisão #2 (LangChain structured output) intacta e torna o provedor um detalhe de configuração, não de código. **Ressalva:** a paridade de structured output por modelo de fallback (especialmente cross-provider via OpenRouter) deve ser verificada — daí o `ModelGateway` negociar o modo compatível.
 
+  - **3.2c — Tradução de erros do provedor e backoff (v1.4, RNF-12/CB-10).** A política escalonada só funciona se as exceções **reais** dos SDKs chegarem classificadas ao juiz. O `ModelGateway` expõe `invoke_structured(node_type, role, schema, messages) → StructuredCallResult(parsed, input_tokens, output_tokens)`, que usa `with_structured_output(schema, include_raw=True)` (erro de parse vira dado, não exceção; o uso de tokens fica disponível para o orçamento) e traduz, **só em volta da chamada ao modelo**, as exceções do provedor em três classes (`model_gateway/errors.py`): **transitório** (status 408/409/429/5xx/529, rate limit, timeout, conexão) → retry no mesmo modelo; **indisponível** (400/401/403/404, modelo inexistente, autenticação) → fallback; **malformado** (parse/validação) → re-solicitação. Exceção desconhecida dentro da chamada → indisponível, com o nome registrado na substituição (auditável; a avaliação nunca aborta — CB-10). A classificação é por `status_code`/nome de classe, sem importar SDK no topo do módulo. O retry aplica **backoff exponencial determinístico** `min(backoff_seconds·2ⁿ, max_backoff_seconds)` (sem jitter — não afeta RNF-01), sem espera após a última tentativa; a função de espera é injetável (testes usam relógio falso).
+  - **3.2d — Achados do juiz (v1.4, DQ-02, RF-29, RNF-07).** O juiz só emite achados de urgência **sugestão** ou **importante**; **crítico é exclusivo de fato determinístico** (regra 6), porque dispara condições de aprovação (RF-19). O `JudgeVerdict` passa a exigir `finding_statement` quando há `finding_type` (senão é saída malformada → re-solicitação) e traz `evidence_symbol`, validado contra os símbolos do TSM (agentes, ferramentas, prompts, nós de aresta). A lista de símbolos vai ao juiz **dentro** dos delimitadores de dado não confiável (R8). Símbolo inexistente → âncora do projeto e nota "símbolo não localizado no TSM" — o juiz nunca inventa evidência.
+  - **3.2e — Limitação estática da Robustez (v1.4, DQ-04, RF-DIM-R2).** O check R2 continua determinístico (presença), mas a dimensão Robustez passa a declarar `static_limitations`: presença de retry/fallback no código não prova eficácia sob falha real; a eficácia só é verificável na Fase 2 (RNF-08).
+  - **3.2f — Parâmetros de pontuação como config (v1.4, DQ-03, RNF-06).** Nota base e penalidades por urgência (e as da Trajetória) vivem em `ScoringConfig` (dentro de `EvaluatorConfig`), com os defaults atuais (90; 22/9/3; Trajetória 85/25) — laudos com a config padrão ficam bit-idênticos. O teto exibido de prontidão estática deriva da nota base, salvo valor explícito (que não pode ser menor que a nota base). Uma guarda de teste impede constantes de pontuação em `evaluators/`.
+  - **3.2g — Detector de harness único (v1.4, RF-DIM-Q1).** Ingestão (inventário) e TSM (`has_harness`) usam a mesma função, que compara por **partes do caminho** (diretórios `tests`/`test`/`__tests__`; arquivos `test_*.py`, `*_test.py`, `*.test.*`, `*.spec.*`; `conftest.py`) em vez de substring — evita falso positivo (`latest_version.py`) e cobre convenções JS/TS.
+
 ### 3.3 State do grafo (contratos Pydantic) — Seção 4.2, RF-01, RF-04..08, RF-09..14, RF-15..22
 
 `AvaliaState` (campos conceituais; tipos Pydantic v2, reducers indicados):
@@ -157,12 +165,14 @@ Cada check de dimensão é classificado. **Determinístico** = derivado do TSM p
 | `divergences` | `list[DivergenceRecord]` | `operator.add` | RF-20, 4.2.7 |
 | `human_decisions` | `list[HumanDecision]` | `operator.add` | RF-24 |
 | `aggregate` | `AggregateScore` (score, veredito, condições) | replace | RF-15..19 |
-| `budget` | `BudgetState` (custo/tempo gasto vs. teto) | custom max/add | RF-12 |
+| `budget` | `BudgetState` (tokens/custo/tempo gasto vs. teto; âncora de tempo em horário real) | custom max/add | RF-12 |
 | `comparison` | `VersionComparison \| None` | replace | RF-28, RF-29 |
 | `report` | `EvaluationReport` | replace | RF-25, Seção 4.2 |
 | `status` | enum (`ok`/`partial`/`error`/`awaiting_human`) | replace | RF-02, RF-12, RF-24 |
 
 O reducer `operator.add` nas dimensões é o que permite o fan-out paralelo escrever no mesmo State sem corrida (cada avaliador emite um `DimensionResult`; o framework concatena no fan-in).
+
+**Objetos por execução, fora do State (v1.4).** O `BudgetMeter` (acumulador de tokens/custo/tempo, protegido por lock porque os ramos do fan-out rodam em paralelo) e o `JudgeCache` vivem **uma execução** e são passados aos nós via `configurable` do LangGraph — não entram no checkpoint. O `BudgetState` do State recebe só os deltas registráveis (para o laudo). A âncora de tempo persistida usa horário real, porque o relógio monotônico não é comparável entre processos (retomada de HITL em outro processo).
 
 ### 3.4 Nós e suas funções — RF-01..29
 
@@ -188,7 +198,7 @@ Ponto de **fan-out** = saída de N3. Ponto de **fan-in** = entrada de N4 (`detec
 - `fan-in → N4 detect_divergence`.
 - Condicional de divergência: `N4 → N5` se resolvida automaticamente (CA-10); `N4 → N4h → (resume) → N5` se irresolúvel (RF-24/CA-11).
 - `N5 → N6` se existe versão anterior; senão `N5 → N7` (CB-06).
-- **Curto-circuito de budget (RF-12/CA-13):** uma checagem transversal de `BudgetState` em cada transição; ao estourar o teto, roteia direto para `N7` com `status=partial` e `AnalysisCoverage` declarando o que ficou de fora.
+- **Curto-circuito de budget (RF-12/CA-13):** uma checagem transversal de `BudgetState` em cada transição; ao estourar o teto, roteia direto para `N7` com `status=partial` e `AnalysisCoverage` declarando o que ficou de fora. **v1.4:** o teto é checado em dois pontos — antes do fan-out (pré-checagem barata) e **antes de cada chamada de juiz**, onde o gasto acontece; estourado, a dimensão degrada para o resultado determinístico com razão "teto de orçamento" (distinta de "fallback esgotado"). O consumo vem das chamadas reais (tokens; moeda se houver `model_prices` — DQ-01). Com ramos paralelos, **quais** dimensões degradam pode variar entre execuções; o laudo sempre as declara (R10).
 - `N6 → N7 → END`.
 
 ### 3.6 Mecanismo de detecção de divergência — RF-20, RF-24, CA-10, CA-11, 4.2.7
@@ -320,10 +330,13 @@ EvaluationReport     { header: ReportHeader;          # 4.2.1 (classificação, 
                        comparison: VersionComparison?;                              # 4.2.5
                        divergences: list[DivergenceRecord];                         # 4.2.7
                        metadata: { effective_config; inventory; coverage;           # 4.2.8
+                                   budget_usage?;                                   # 4.2.8 (v1.4, DQ-01)
                                    known_limitations } }                            # RNF-08, RNF-10
 ```
 
 `Submission` (entrada) e `EvaluatorConfig` (pesos opcionais, limiares, teto de custo/tempo) completam o contrato de entrada (4.1). `EvaluatorConfig` valida pesos na ingestão (CB-07).
+
+**Adições v1.4 (todas aditivas, com default):** `EvaluatorConfig.scoring: ScoringConfig` (3.2f); `token_ceiling: int?` e `model_prices: {slug → preço por Mtok de entrada/saída}` ao lado de `cost_ceiling` (moeda) e `time_ceiling_s` (DQ-01); `RetryPolicy.max_backoff_seconds` (3.2c); `JudgeVerdict.{urgency ∈ {sugestao, importante}, evidence_symbol?}` (3.2d); `JudgeContribution.partial_reason?` (distingue teto de fallback esgotado); `metadata.budget_usage? = {input_tokens, output_tokens, cost?, cost_unavailable_reason?, elapsed_s, ceilings, degraded_dims}` (4.2.8).
 
 ---
 
@@ -386,6 +399,8 @@ Todos os testes operam sobre **fixtures de artefatos estáticos** (mini sistemas
 | CB-06 | Comparação sem histórico → assert laudo normal + nota "sem histórico", sem `VersionComparison`. |
 | CB-08 | Fixture com config↔código contraditórios → assert `Finding` de contradição + confiança reduzida. |
 
+**Adições v1.4:** (i) exceções com a forma dos SDKs (classes locais com os mesmos nomes e `status_code`) → retry/fallback/parcial, nunca exceção propagada (RNF-12/CB-10, T-1008); (ii) backoff verificado com relógio falso; (iii) orçamento acumulado a partir do uso **reportado** pelo gateway simulado, não injetado (CA-13, T-802); (iv) guarda de AST contra constantes de pontuação em `evaluators/`; (v) consistência ingest↔TSM na detecção de harness; (vi) gate de cobertura no CI com piso medido (T-1009).
+
 **Camadas de teste:** (a) unidade nos checks determinísticos (TSM→CheckOutcome); (b) contrato Pydantic (laudo sempre completo); (c) integração de grafo por fixture (acima); (d) reprodutibilidade (CA-14); (e) meta-avaliação offline contra dataset de benchmark (MS-04/MS-09), fora do CI crítico.
 
 ---
@@ -402,7 +417,9 @@ Todos os testes operam sobre **fixtures de artefatos estáticos** (mini sistemas
 | R6 | **Falsa sensação de avaliação comportamental** na Fase 1 | Usuário superinterpreta o laudo | `static_limitations` obrigatório (RF-13/RNF-04) em toda dimensão comportamental |
 | R7 | **LangSmith como dependência dura** | Laudo não gera se observabilidade cai | Observabilidade desacoplada do caminho crítico (3.11) |
 | R8 | **Injeção de prompt via artefato do alvo** (prompts maliciosos lidos pelo juiz) | Juiz manipulado | Tratar conteúdo do alvo como *dado não confiável*; sandbox de prompt (delimitação/escape) nos juízes; `[risco a endereçar no TASK]` |
-| R9 | **Indisponibilidade/falha do modelo de julgamento** (outage, rate limit, output malformado) no fan-out de N chamadas | Avaliação aborta por falha pontual | Política escalonada RNF-12 (retry mesmo modelo → re-prompt → fallback declarado c/ confiança reduzida → laudo parcial); modelo primário+fallback configuráveis por nó (3.2, T-005/T-302/T-802) |
+| R9 | **Indisponibilidade/falha do modelo de julgamento** (outage, rate limit, output malformado) no fan-out de N chamadas | Avaliação aborta por falha pontual | Política escalonada RNF-12 (retry mesmo modelo → re-prompt → fallback declarado c/ confiança reduzida → laudo parcial); modelo primário+fallback configuráveis por nó (3.2, T-005/T-302/T-802). **v1.4:** exceções reais do SDK traduzidas no gateway (3.2c) — antes só as exceções internas eram tratadas |
+| R10 | **Degradação não determinística sob teto de custo** com ramos paralelos (v1.4) | Conjunto de dimensões degradadas varia entre execuções | Só ocorre com teto atingido (laudo já é parcial); o laudo declara as dimensões degradadas e o consumo vs. teto (4.2.8) |
+| R11 | **Migração da identidade dos achados do juiz** (v1.4, evidência por símbolo) | Primeira comparação histórica pós-mudança mostra achados do juiz como resolvidos/novos | Mudança única, declarada em PROGRESS/README; achados determinísticos inalterados |
 
 ---
 
@@ -421,7 +438,7 @@ Todos os testes operam sobre **fixtures de artefatos estáticos** (mini sistemas
 | RF-09 | N4-Dx avaliadores + `DimensionResult` completo (3.4) |
 | RF-10 | `reasoning` obrigatório; structured output (3.10, 4) |
 | RF-11 | `confidence`/`confidence_reason` em `DimensionResult` (4) |
-| RF-12 | N1 priorização + `AnalysisCoverage` + curto-circuito budget (3.1, 3.5) |
+| RF-12 | N1 priorização + `AnalysisCoverage` + curto-circuito budget (3.1, 3.5); `BudgetMeter` com consumo real (3.3, v1.4) |
 | RF-13 | `static_limitations` nas dims comportamentais (3.2, 4) |
 | RF-14 | `EvidenceRef` herdado do TSM (3.1) |
 | RF-15 | N5 `aggregate` ponderado (3.7) |
@@ -438,26 +455,26 @@ Todos os testes operam sobre **fixtures de artefatos estáticos** (mini sistemas
 | RF-26 | Estratégia de reprodutibilidade (6) |
 | RF-27 | Recomendações consolidadas/priorizadas (3.10, 4) |
 | RF-28 | Repositório de laudos por `target_id` (3.8b) |
-| RF-29 | `compare_history` + `findings_index` (3.8b) |
+| RF-29 | `compare_history` + `findings_index` (3.8b); evidência do juiz validada por símbolo (3.2d) |
 | RF-DIM-C1/C2/C3 | Avaliador Custo (tabela 3.2) |
 | RF-DIM-P1/P2 | Avaliador Performance (3.2) |
-| RF-DIM-Q1/Q2 | Avaliador Qualidade (3.2) + RF-13 |
+| RF-DIM-Q1/Q2 | Avaliador Qualidade (3.2) + RF-13; detector de harness único (3.2g) |
 | RF-DIM-A1/A2 | Avaliador Assertividade (3.2) |
 | RF-DIM-H1/H2 | Avaliador Alucinação (3.2) + RF-13 |
 | RF-DIM-T1/T2/T3 | Avaliador Trajetória (3.2) |
-| RF-DIM-R1/R2/R3 | Avaliador Robustez (3.2) |
+| RF-DIM-R1/R2/R3 | Avaliador Robustez (3.2); limitação estática declarada (3.2e, DQ-04) |
 | RNF-01 | Split determinístico/LLM + reprodutibilidade (6) |
 | RNF-02 | `reasoning` obrigatório (4) |
 | RNF-03 | `confidence` em todo julgamento, incl. classificação (3.3) |
 | RNF-04 | `static_limitations` (3.2) |
 | RNF-05 | Fase 1 não executa; teste negativo (8, R8) |
-| RNF-06 | Perfis/limiares como dados (`weight_profiles.yaml`) (3.7) |
+| RNF-06 | Perfis/limiares como dados (`weight_profiles.yaml`) (3.7); `ScoringConfig` (3.2f) |
 | RNF-07 | `EvidenceRef` em todo `Finding` (3.10) |
 | RNF-08 | Seções de limitação/cobertura no laudo (3.10) |
 | RNF-09 | Classificação independente de autodeclaração (3.1) |
 | RNF-10 | Laudo autocontido + divergências (3.10) |
 | RNF-11 | Zero HITL no caminho feliz; sem auth (3.9) |
-| RNF-12 | Política escalonada de fallback de modelo no wrapper de juiz (3.2); config por nó (T-005); laudo parcial (3.5); declaração em metadados (R9) |
+| RNF-12 | Política escalonada de fallback de modelo no wrapper de juiz (3.2); tradução de exceções + backoff no gateway (3.2c); config por nó (T-005); laudo parcial (3.5); declaração em metadados (R9) |
 | MS-04/07/09 | Subsistema de meta-avaliação + dataset (3.11) |
 | MS-08 | Calibração de confiança via dataset (3.11) |
 | MS-10 | Tracing LangSmith + medição periódica (3.11) |
@@ -483,10 +500,18 @@ Todos os testes operam sobre **fixtures de artefatos estáticos** (mini sistemas
 - **#4 — Divergência: sem delta hardcoded (3.6).** Gatilho ancorado nas faixas da Seção 4.2.6: divergência quando dois julgamentos da mesma dimensão caem em **faixas qualitativas diferentes** (Insuficiente / Adequado com ressalvas / Pronto) **OU** quando a confiança da dimensão fica **abaixo de "médio"**. Valores **configuráveis**; calibrar via MS-08. Documentado como configuração, não constante.
 - **#5 — HITL: CLI primeiro, atrás de uma interface `ApprovalProvider` (3.9).** A interface abstrai o interrupt/resume. API-callback e UI ficam como pontos de extensão da Fase 2. Justificativa: HITL na Fase 1 é raro (só RF-24) e RNF-11 exige baixa fricção.
 
+### Resoluções v1.4 (2026-09-22) — auditoria de qualidade
+
+- **DQ-01 → 3.3/3.5/4:** teto em tokens (`token_ceiling`, sempre aplicável) + teto em moeda (`cost_ceiling`, só com `model_prices`; sem preço, declarado em `budget_usage`).
+- **DQ-02 → 3.2d:** juiz limitado a sugestão/importante; crítico só determinístico.
+- **DQ-03 → 3.2f:** `ScoringConfig`; teto de prontidão derivado da nota base.
+- **DQ-04 → 3.2e:** `static_limitations` na Robustez.
+- **Sem conflito com a spec v0.5:** as mudanças de código fazem o sistema cumprir RNF-06/RNF-12/CB-10/CA-13 como já escritos; as emendas da spec apenas explicitam unidades, parâmetros e o novo metadado.
+
 ### `[CONFLITO COM A SPEC]`
 
 - **Nenhum conflito identificado** (confirmado pelo usuário). Ponto de atenção (não conflito): a stack proposta omitia o motor de análise estática e tratava sub-tarefas determinísticas como "LLM simples"; o plano corrigiu para **parsing puro nos checks determinísticos** (Seção 2, 3.1), pré-requisito de RNF-01 — alinhado à Spec.
 
 ---
 
-*Fim do Plano Técnico — versão 1.3. Decisões técnicas resolvidas (inclui RNF-12: fallback Opus→Sonnet configurável via `ModelGateway`, back-ends Anthropic/OpenRouter). Pronto para a fase TASK (ver [tasks.md](tasks.md)).*
+*Fim do Plano Técnico — versão 1.4 (revisão de auditoria de qualidade: 3.2c–3.2g, 3.3, 3.5, R10–R11). Decisões técnicas resolvidas (inclui RNF-12: fallback Opus→Sonnet configurável via `ModelGateway`, back-ends Anthropic/OpenRouter). Pronto para a fase TASK (ver [tasks.md](tasks.md)).*
