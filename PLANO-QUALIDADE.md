@@ -107,7 +107,7 @@ testes-guarda), CI completo com Postgres real, rastreabilidade em todo módulo, 
 - [x] **PR-2** — harness único (`extract/harness.py`; também unificou a 3ª cópia, em `extract/prioritize.py`; +20 testes)
 - [x] **PR-4** — pontuação como config (`ScoringConfig`, inclusive o piso 50 e a penalidade de contradição da Trajetória; teto derivado; guarda de AST; +10 testes)
 - [x] **PR-3** — orçamento com consumo real (`BudgetMeter`/`RunRegistry`; `budget_usage` no laudo; flags de teto na CLI; +12 testes)
-- [ ] **PR-5** — achados do juiz + limitação da Robustez
+- [x] **PR-5** — achados do juiz + limitação da Robustez (`JudgeVerdict.urgency`/`evidence_symbol`; `symbol_index`; nó de aresta com símbolo próprio; +12 testes)
 - [ ] **PR-6** — CLI + cobertura
 - [ ] **PR-7** — melhorias finas
 - [ ] **Fechamento** — PROGRESS §2j (tabela de entregas, como a §2i), dogfood re-rodado e registrado, README (flags de teto, `--debug`, códigos de saída, garantias de resiliência, `model_prices`, mascaramento de segredos, cobertura, nota de migração), CLAUDE.md (comando de cobertura), proposta de caso "retry declarado mas ineficaz" em `benchmark/dataset.yaml` (curadoria humana, D-03).

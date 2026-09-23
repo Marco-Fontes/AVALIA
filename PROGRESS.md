@@ -524,7 +524,7 @@ eficácia. Emendas: spec v0.5, plan v1.4 (§3.2c–3.2g, §3.3, §3.5, R10–R11
 | PR-2 | Detector de harness único (`extract/harness.py`, usado por ingestão, TSM e priorização — eram 3 heurísticas) | T-107 | ✅ 315 testes (+20); aceite e dogfood inalterados |
 | PR-4 | Pontuação como config (`ScoringConfig`; teto de prontidão derivado = `max_static_score`; guarda `tests/guards/test_no_scoring_constants.py`) | T-008 | ✅ 325 testes (+10); notas do dogfood idênticas |
 | PR-3 | Orçamento com consumo real (`BudgetMeter` + `RunRegistry` por execução; teto checado antes de cada chamada de juiz; `budget_usage` no laudo; `--token-ceiling`/`--cost-ceiling`/`--time-ceiling`) | T-805, T-802 reforçado | ✅ 337 testes (+12); dogfood 89/100 |
-| PR-5 | Achados do juiz (urgência limitada, evidência por símbolo) + limitação da Robustez | T-312, T-313 | ⏳ |
+| PR-5 | Achados do juiz (urgência sugestão/importante; `finding_statement` obrigatório; evidência = símbolo validado contra o TSM, senão âncora do projeto) + limitação estática da Robustez | T-312, T-313 | ✅ 349 testes (+12); dogfood 89/100. **Migração:** identidade dos achados do juiz muda uma vez (plan R11) |
 | PR-6 | CLI com códigos de saída + gate de cobertura | T-1009 | ⏳ |
 | PR-7 | Melhorias finas (loader, mascaramento de segredos, tipagem) | — | ⏳ |
 
