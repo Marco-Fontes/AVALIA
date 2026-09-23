@@ -39,6 +39,7 @@ from avalia.graph.build_graph import build_avalia_graph
 from avalia.hitl.approval import StaticApprovalProvider
 from avalia.hitl.runner import run_evaluation
 from avalia.judge.framework import JudgeVerdict, ModelUnavailableError
+from avalia.model_gateway.structured import StructuredInvoker
 from avalia.persistence.repository import InMemoryReportRepository
 
 pytestmark = pytest.mark.fast
@@ -144,7 +145,7 @@ class _ScriptedClient:
         return self._gw.next_verdict(self._node_type)
 
 
-class ScriptedGateway:
+class ScriptedGateway(StructuredInvoker):
     """Fila de JudgeVerdict por node_type; `default` para os demais juízes (convergentes)."""
 
     def __init__(self, scripts, default):
@@ -174,7 +175,7 @@ class _ExhaustedClient:
         raise ModelUnavailableError("modelo indisponível")
 
 
-class ExhaustedGateway:
+class ExhaustedGateway(StructuredInvoker):
     """Primário e fallback indisponíveis (CB-10)."""
 
     def with_structured_output(self, node_type, role, schema):

@@ -520,7 +520,7 @@ eficácia. Emendas: spec v0.5, plan v1.4 (§3.2c–3.2g, §3.3, §3.5, R10–R11
 | PR | Entrega | Tarefas | Estado |
 |---|---|---|---|
 | PR-D | Emendas normativas (spec/plan/tasks) + PLANO-QUALIDADE.md | — | ✅ |
-| PR-1 | Resiliência real do juiz: tradução de exceções + backoff | T-302/T-1008 reforçados | ⏳ |
+| PR-1 | Resiliência real do juiz: tradução de exceções + backoff (`model_gateway/errors.py`, `structured.py`, `roles.py`; `invoke_structured`; `RetryPolicy.max_backoff_seconds`/`delay_for`) | T-302/T-1008 reforçados | ✅ 295 testes (+33); dogfood inalterado (89/100) |
 | PR-2 | Detector de harness único | T-107 | ⏳ |
 | PR-4 | Pontuação como config + guarda | T-008 | ⏳ |
 | PR-3 | Orçamento com consumo real + flags de teto na CLI | T-805, T-802 reforçado | ⏳ |

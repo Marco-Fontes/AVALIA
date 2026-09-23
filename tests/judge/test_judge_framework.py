@@ -27,6 +27,7 @@ from avalia.judge.framework import (
 )
 from avalia.judge.rubrics import get_rubric
 from avalia.model_gateway.gateway import ModelRole
+from avalia.model_gateway.structured import StructuredInvoker
 
 pytestmark = pytest.mark.fast
 
@@ -55,7 +56,7 @@ class _FakeStructured:
         return self._behavior()
 
 
-class _FakeGateway:
+class _FakeGateway(StructuredInvoker):
     def __init__(self, *, primary, fallback=None, max_attempts=2):
         self._primary = primary
         self._fallback = fallback

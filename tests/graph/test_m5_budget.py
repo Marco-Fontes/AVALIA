@@ -14,6 +14,7 @@ from avalia.domain.submission import Submission, TargetMetadata
 from avalia.graph.build_graph import build_avalia_graph
 from avalia.graph.state import BudgetState
 from avalia.judge.framework import ModelUnavailableError
+from avalia.model_gateway.structured import StructuredInvoker
 
 pytestmark = pytest.mark.fast
 
@@ -68,7 +69,7 @@ class _ExhaustedStructured:
         raise ModelUnavailableError("modelo indisponível")
 
 
-class _ExhaustedGateway:
+class _ExhaustedGateway(StructuredInvoker):
     """Gateway cujo primário e fallback estão ambos indisponíveis (CB-10)."""
 
     def with_structured_output(self, node_type, role, schema):
