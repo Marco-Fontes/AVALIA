@@ -20,6 +20,7 @@ from avalia.domain.enums import Band, Confidence, Dimension
 from avalia.domain.submission import Submission, TargetMetadata
 from avalia.graph.build_graph import build_avalia_graph
 from avalia.judge.framework import JudgeVerdict
+from avalia.model_gateway.structured import StructuredInvoker
 
 pytestmark = pytest.mark.fast
 
@@ -98,7 +99,7 @@ class _StableClient:
         )
 
 
-class StableJudgeGateway:
+class StableJudgeGateway(StructuredInvoker):
     """Juiz que varia a redação mas mantém a faixa — testa RNF-01 regime estatístico."""
 
     def with_structured_output(self, node_type, role, schema):

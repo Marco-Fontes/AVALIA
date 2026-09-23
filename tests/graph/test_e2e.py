@@ -16,6 +16,7 @@ from avalia.domain.enums import Band, Confidence, RunStatus, Topology, Verdict
 from avalia.domain.submission import Submission, TargetMetadata
 from avalia.graph.build_graph import build_avalia_graph
 from avalia.judge.framework import JudgeVerdict
+from avalia.model_gateway.structured import StructuredInvoker
 
 pytestmark = pytest.mark.fast
 
@@ -81,7 +82,7 @@ class _FakeStructured:
         return self._behavior()
 
 
-class _FakeGateway:
+class _FakeGateway(StructuredInvoker):
     def with_structured_output(self, node_type, role, schema):
         return _FakeStructured(
             lambda: JudgeVerdict(

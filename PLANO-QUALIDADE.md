@@ -53,9 +53,9 @@ testes-guarda), CI completo com Postgres real, rastreabilidade em todo módulo, 
   - malformado: `OutputParserException`, `pydantic.ValidationError`, `json.JSONDecodeError`;
   - outra exceção **dentro da chamada ao modelo** → indisponível, com o nome da classe na substituição.
 - **Q1.3** `ModelGateway.invoke_structured(node_type, role, schema, messages) -> StructuredCallResult(parsed, input_tokens, output_tokens)` usando `with_structured_output(schema, include_raw=True)`; `try/except` só em volta da chamada. `GatewayLike` passa a exigir `invoke_structured` e `retry_for`.
-- **Q1.4** `Judge._run_angle` sobre `invoke_structured`, com razão de substituição específica (ex.: `fallback aplicado: primário indisponível (NotFoundError)`).
+- **Q1.4** `Judge._run_angle` sobre `invoke_structured`, com razão de substituição específica (ex.: `fallback de modelo aplicado (primário: indisponível — NotFoundError)` ou `… transitório após 3 tentativa(s) — RateLimitError`).
 - **Q1.5** Backoff: `RetryPolicy.max_backoff_seconds` (default 30); espera `min(backoff_seconds·2ⁿ, max_backoff_seconds)` entre tentativas no mesmo modelo, sem jitter, sem espera após a última; `sleep` injetável.
-- **Q1.6** Testes: novo `tests/judge/test_provider_errors.py` (429 → retry com delays 1s/2s; 404 no primário → fallback declarado e confiança reduzida; 401 nos dois → `partial`; parse inválido → re-solicitação; exceção desconhecida → fallback com o nome); teste de grafo com gateway que sempre lança 429 → laudo parcial. Helper de gateway falso em `tests/conftest.py`; atualizar os mocks em `tests/judge/test_judge_framework.py`, `tests/acceptance/test_acceptance_matrix.py`, `tests/acceptance/test_reproducibility.py`, `tests/divergence/test_divergence.py`, `tests/graph/test_e2e.py`, `tests/graph/test_m3_hitl.py`, `tests/graph/test_m5_budget.py`.
+- **Q1.6** Testes: `tests/model_gateway/test_provider_errors.py` (classificação + `invoke_structured`) e `tests/judge/test_judge_resilience.py` (429 → retry com delays 1s/2s; 404 no primário → fallback declarado e confiança reduzida; 401 nos dois → `partial`; parse inválido → re-solicitação; exceção desconhecida → fallback com o nome); teste de grafo com gateway que sempre lança 429 → laudo parcial. Em vez de um helper em `tests/conftest.py` (`tests/` não é pacote), a lógica de invocação fica na base `StructuredInvoker` (`model_gateway/structured.py`), usada pelo `ModelGateway` real; os mocks só passam a herdar dela, em `tests/judge/test_judge_framework.py`, `tests/acceptance/test_acceptance_matrix.py`, `tests/acceptance/test_reproducibility.py`, `tests/divergence/test_divergence.py`, `tests/graph/test_e2e.py`, `tests/graph/test_m3_hitl.py`, `tests/graph/test_m5_budget.py`.
 - **DoD:** a simulação de 429 da auditoria degrada em vez de propagar; gates verdes; aceite intacto.
 
 ### PR-2 — Detector de harness único (item 4) · T-107 · plan §3.2g
@@ -102,7 +102,7 @@ testes-guarda), CI completo com Postgres real, rastreabilidade em todo módulo, 
 ## 5. Checklist
 
 - [x] **PR-D** — spec v0.5, plan v1.4, tasks v1.4, CLAUDE.md (versões), PROGRESS (cabeçalho, números, §7/MQ, nota do guard), este plano.
-- [ ] **PR-1** — resiliência real do juiz
+- [x] **PR-1** — resiliência real do juiz (`model_gateway/{errors,structured,roles}.py`; +33 testes; 295 verdes)
 - [ ] **PR-2** — harness único
 - [ ] **PR-4** — pontuação como config
 - [ ] **PR-3** — orçamento com consumo real

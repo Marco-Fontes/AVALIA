@@ -19,6 +19,7 @@ from avalia.graph.build_graph import build_avalia_graph
 from avalia.hitl.approval import StaticApprovalProvider
 from avalia.hitl.runner import run_evaluation
 from avalia.judge.framework import JudgeVerdict
+from avalia.model_gateway.structured import StructuredInvoker
 
 pytestmark = pytest.mark.fast
 
@@ -43,7 +44,7 @@ class _ScriptedClient:
         return self._gw.next_verdict(self._node_type)
 
 
-class ScriptedGateway:
+class ScriptedGateway(StructuredInvoker):
     """Fila de JudgeVerdict por node_type; `default` para os demais juízes (convergentes)."""
 
     def __init__(self, scripts: dict[str, list[JudgeVerdict]], default: JudgeVerdict):

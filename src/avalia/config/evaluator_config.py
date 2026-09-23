@@ -52,6 +52,13 @@ class RetryPolicy(BaseModel):
 
     max_attempts: int = Field(default=2, ge=1)
     backoff_seconds: float = Field(default=1.0, ge=0.0)
+    # v1.4 (plan §3.2c): teto da espera exponencial entre tentativas no mesmo modelo.
+    max_backoff_seconds: float = Field(default=30.0, ge=0.0)
+
+    def delay_for(self, retry_index: int) -> float:
+        """Espera antes da retentativa `retry_index` (0 = 1ª): `backoff·2ⁿ`, limitada ao teto.
+        Determinística (sem jitter) — não interfere na reprodutibilidade (RNF-01)."""
+        return float(min(self.backoff_seconds * (2**retry_index), self.max_backoff_seconds))
 
 
 class NodeModelConfig(BaseModel):
