@@ -20,6 +20,7 @@ from pydantic import BaseModel, ConfigDict
 from avalia.domain.contracts import ComponentInventory
 from avalia.domain.enums import RunStatus
 from avalia.domain.submission import Submission
+from avalia.extract.harness import detect_harness
 from avalia.extract.registry import language_for_path
 
 # Linguagens de CÓDIGO (não config/dados) que contam como "código-fonte" obrigatório (RF-02).
@@ -27,7 +28,6 @@ from avalia.extract.registry import language_for_path
 _CODE_LANGUAGES = frozenset({"python", "javascript", "typescript"})
 
 # Sinais (heurísticos, declarados) de componentes opcionais/obrigatórios no texto dos artefatos.
-_HARNESS_PATH_HINTS = ("test_", "_test.py", "/tests/", "/test/", "conftest")
 _INSTRUMENTATION_HINTS = (
     "logging",
     "logger",
@@ -68,7 +68,7 @@ def _detect_components(files: dict[str, str]) -> tuple[list[str], list[str]]:
         "prompts": _any_content(files, _PROMPT_HINTS),
         "configuracao": _any_path(files, _CONFIG_PATH_HINTS)
         or _any_content(files, _CONFIG_CONTENT_HINTS),
-        "harness": _any_path(files, _HARNESS_PATH_HINTS),
+        "harness": detect_harness(files),  # T-107: mesmo detector do TSM
         "instrumentacao": _any_content(files, _INSTRUMENTATION_HINTS),
     }
     present = [name for name, ok in checks.items() if ok]

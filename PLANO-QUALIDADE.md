@@ -103,7 +103,7 @@ testes-guarda), CI completo com Postgres real, rastreabilidade em todo módulo, 
 
 - [x] **PR-D** — spec v0.5, plan v1.4, tasks v1.4, CLAUDE.md (versões), PROGRESS (cabeçalho, números, §7/MQ, nota do guard), este plano.
 - [x] **PR-1** — resiliência real do juiz (`model_gateway/{errors,structured,roles}.py`; +33 testes; 295 verdes)
-- [ ] **PR-2** — harness único
+- [x] **PR-2** — harness único (`extract/harness.py`; também unificou a 3ª cópia, em `extract/prioritize.py`; +20 testes)
 - [ ] **PR-4** — pontuação como config
 - [ ] **PR-3** — orçamento com consumo real
 - [ ] **PR-5** — achados do juiz + limitação da Robustez
