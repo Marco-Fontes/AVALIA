@@ -7,4 +7,4 @@ vem de leitura estática (ast / tree-sitter) dos artefatos do alvo.
 
 from __future__ import annotations
 
-__version__ = "0.0.0"
+__version__ = "0.11.0"

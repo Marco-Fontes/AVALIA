@@ -23,6 +23,7 @@ from avalia.extract.harness import detect_harness
 from avalia.extract.prioritize import rank_files
 from avalia.extract.readability import unreadable_files
 from avalia.extract.registry import get_extractor, language_for_path
+from avalia.extract.secrets import redact_config
 
 _ALL_DIMENSIONS = list(Dimension)
 
@@ -172,7 +173,7 @@ def build_tsm(files: dict[str, str], config: EvaluatorConfig | None = None) -> T
         edges=merged.edges,
         loops=merged.loops,
         model_assignments=merged.model_assignments,
-        configs=merged.configs,
+        configs=[redact_config(c) for c in merged.configs],  # PR-7: sem segredos no TSM
         error_handling=merged.error_handling,
         shared_state=merged.shared_state,
         has_harness=detect_harness(files),  # T-107: detector único

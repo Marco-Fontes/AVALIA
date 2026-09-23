@@ -109,7 +109,7 @@ testes-guarda), CI completo com Postgres real, rastreabilidade em todo módulo, 
 - [x] **PR-3** — orçamento com consumo real (`BudgetMeter`/`RunRegistry`; `budget_usage` no laudo; flags de teto na CLI; +12 testes)
 - [x] **PR-5** — achados do juiz + limitação da Robustez (`JudgeVerdict.urgency`/`evidence_symbol`; `symbol_index`; nó de aresta com símbolo próprio; +12 testes)
 - [x] **PR-6** — CLI + cobertura (códigos 0/1/2/3 + `--debug`; `pytest-cov`, piso 91% — medido 92,3%; CLAUDE.md com o comando; +7 testes)
-- [ ] **PR-7** — melhorias finas
+- [x] **PR-7** — melhorias finas (loader com poda; `extract/secrets.py` no TSM; tipagem da CLI; `_below_floor` 1x; versão 0.11.0; `thread_id` por avaliação + recusa de reuso; +17 testes). **Não feito, de propósito:** `language_for_path` via `Path.suffix` — custo atual desprezível e a troca arriscaria `.env`/sufixos compostos sem ganho.
 - [ ] **Fechamento** — PROGRESS §2j (tabela de entregas, como a §2i), dogfood re-rodado e registrado, README (flags de teto, `--debug`, códigos de saída, garantias de resiliência, `model_prices`, mascaramento de segredos, cobertura, nota de migração), CLAUDE.md (comando de cobertura), proposta de caso "retry declarado mas ineficaz" em `benchmark/dataset.yaml` (curadoria humana, D-03).
 
 Ordem: **PR-1 → PR-2 → PR-4 → PR-3 → PR-5 → PR-6 → PR-7**. PR-3 e PR-5 dependem do PR-1.

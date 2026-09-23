@@ -56,8 +56,9 @@ def aggregate(
     # Ordenação estável por Dimension → resultado independe da ordem de chegada do fan-out (T-311).
     ordered = sorted(results, key=lambda dr: _DIM_ORDER[dr.dimension])
     scored = [dr for dr in ordered if dr.applicable and dr.score is not None]
-    included = [dr for dr in scored if not _below_floor(dr, config)]
-    excluded: list[Dimension] = [dr.dimension for dr in scored if _below_floor(dr, config)]
+    below = {dr.dimension: _below_floor(dr, config) for dr in scored}
+    included = [dr for dr in scored if not below[dr.dimension]]
+    excluded: list[Dimension] = [dr.dimension for dr in scored if below[dr.dimension]]
 
     if included:
         eff = renormalize(

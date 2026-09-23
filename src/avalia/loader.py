@@ -11,6 +11,7 @@ Rastreabilidade: RF-01, S-01; RNF-05/S-04.
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 # Diretórios de ruído (não fazem parte do artefato avaliável).
@@ -59,6 +60,23 @@ def _is_test_fixture(rel_parts: tuple[str, ...]) -> bool:
     return False
 
 
+def _walk_pruned(root: Path) -> list[Path]:
+    """Arquivos sob `root`, SEM descer em diretórios de ruído (`node_modules`, `.venv`, …) nem em
+    fixtures de teste — antes, `rglob("*")` percorria tudo e só depois descartava (PR-7).
+    Ordem idêntica à anterior (`sorted` de `Path`) → saída determinística (RNF-01)."""
+    found: list[Path] = []
+    for dirpath, dirnames, filenames in os.walk(root):
+        current = Path(dirpath)
+        rel_parts = current.relative_to(root).parts
+        dirnames[:] = [
+            d
+            for d in dirnames
+            if not _is_skippable_dir((*rel_parts, d)) and not _is_test_fixture((*rel_parts, d))
+        ]
+        found.extend(current / name for name in filenames)
+    return sorted(found)
+
+
 def read_target_directory(root: str | Path, *, max_bytes: int = _MAX_BYTES) -> dict[str, str]:
     """Lê os arquivos-texto do diretório-alvo → `{caminho_relativo: conteúdo}` (RNF-05: só texto).
 
@@ -68,7 +86,7 @@ def read_target_directory(root: str | Path, *, max_bytes: int = _MAX_BYTES) -> d
     if not root_path.exists():
         raise FileNotFoundError(f"Caminho do alvo não encontrado: {root}")
 
-    files = [root_path] if root_path.is_file() else sorted(root_path.rglob("*"))
+    files = [root_path] if root_path.is_file() else _walk_pruned(root_path)
     base = root_path.parent if root_path.is_file() else root_path
 
     out: dict[str, str] = {}

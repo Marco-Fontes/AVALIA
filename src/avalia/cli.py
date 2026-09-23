@@ -15,17 +15,18 @@ import os
 import sys
 import traceback
 from pathlib import Path
-from typing import Any
 
 from pydantic import ValidationError
 
 from avalia.config.evaluator_config import EvaluatorConfig
+from avalia.domain.contracts import EvaluationReport
 from avalia.domain.enums import RunStatus, Urgency
 from avalia.domain.submission import Submission, TargetMetadata
 from avalia.graph.build_graph import build_avalia_graph
 from avalia.hitl.approval import CLIApprovalProvider, StaticApprovalProvider
 from avalia.hitl.runner import run_evaluation
 from avalia.loader import read_target_directory
+from avalia.persistence.repository import ReportRepository
 from avalia.report.render import describe_budget_usage, render_json, render_markdown
 
 
@@ -109,7 +110,7 @@ def _make_config(args: argparse.Namespace) -> EvaluatorConfig:
     )
 
 
-def _make_repository(args: argparse.Namespace) -> Any:
+def _make_repository(args: argparse.Namespace) -> ReportRepository | None:
     """Backend de histórico (RF-28/29), opt-in (RNF-11). Precedência: --history-dir > DSN > nenhum.
 
     Retorna um `ReportRepository` ou `None` (sem histórico — comportamento default da CLI).
@@ -126,7 +127,7 @@ def _make_repository(args: argparse.Namespace) -> Any:
     return None
 
 
-def _summary(report: Any, status: RunStatus, mode: str, out_paths: list[Path]) -> str:
+def _summary(report: EvaluationReport, status: RunStatus, mode: str, out_paths: list[Path]) -> str:
     h = report.header
     lines: list[str] = []
     lines.append("")
@@ -220,7 +221,7 @@ def _make_config_or_fail(args: argparse.Namespace) -> EvaluatorConfig:
         raise _CliError(f"configuração inválida — {details}", EXIT_INPUT) from exc
 
 
-def _make_repository_or_fail(args: argparse.Namespace) -> Any:
+def _make_repository_or_fail(args: argparse.Namespace) -> ReportRepository | None:
     try:
         return _make_repository(args)
     except OSError as exc:
@@ -238,7 +239,7 @@ def _make_repository_or_fail(args: argparse.Namespace) -> Any:
         raise
 
 
-def _write_outputs(report: Any, out_dir: Path, fmt: str) -> list[Path]:
+def _write_outputs(report: EvaluationReport, out_dir: Path, fmt: str) -> list[Path]:
     try:
         out_dir.mkdir(parents=True, exist_ok=True)
         out_paths: list[Path] = []
@@ -289,9 +290,7 @@ def _run(args: argparse.Namespace) -> int:
     repository = _make_repository_or_fail(args)
     graph = build_avalia_graph(gateway=gateway, repository=repository)
     provider = CLIApprovalProvider() if gateway is not None else StaticApprovalProvider([])
-    result = run_evaluation(
-        graph, {"submission": submission}, approval_provider=provider, thread_id=target_id
-    )
+    result = run_evaluation(graph, {"submission": submission}, approval_provider=provider)
 
     status = result.get("status")
     report = result.get("report")

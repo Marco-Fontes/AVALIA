@@ -526,7 +526,7 @@ eficácia. Emendas: spec v0.5, plan v1.4 (§3.2c–3.2g, §3.3, §3.5, R10–R11
 | PR-3 | Orçamento com consumo real (`BudgetMeter` + `RunRegistry` por execução; teto checado antes de cada chamada de juiz; `budget_usage` no laudo; `--token-ceiling`/`--cost-ceiling`/`--time-ceiling`) | T-805, T-802 reforçado | ✅ 337 testes (+12); dogfood 89/100 |
 | PR-5 | Achados do juiz (urgência sugestão/importante; `finding_statement` obrigatório; evidência = símbolo validado contra o TSM, senão âncora do projeto) + limitação estática da Robustez | T-312, T-313 | ✅ 349 testes (+12); dogfood 89/100. **Migração:** identidade dos achados do juiz muda uma vez (plan R11) |
 | PR-6 | CLI com códigos de saída (0 ok · 1 interno · 2 entrada · 3 infra) + `--debug`; gate de cobertura no CI (`pytest --cov`, `fail_under=91`, medido 92,3%) | T-1009 | ✅ 356 testes (+7) |
-| PR-7 | Melhorias finas (loader, mascaramento de segredos, tipagem) | — | ⏳ |
+| PR-7 | Melhorias finas: loader poda `node_modules`/`.venv` na descida (mesma saída); segredos mascarados no TSM (`extract/secrets.py`); `thread_id` por avaliação no runner + ingestão recusa reuso de avaliação concluída; tipagem da CLI; versão 0.11.0 | — | ✅ 373 testes (+17); cobertura 92,3% |
 
 ### M12+ — Fase 2: avaliação dinâmica *(roadmap — ⚠ PARE-E-CONFIRME, S-05)*
 Os **ganchos já existem** (T-804: `execution_gate`, `TargetRunner`, `TestCaseGenerator`, slot

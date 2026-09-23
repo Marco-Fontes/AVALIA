@@ -113,3 +113,37 @@ def test_ca11_persistent_divergence_escalates_to_human():
         "decisão humana" in lim.lower() or "humano" in lim.lower()
         for lim in report.metadata.known_limitations
     )
+
+
+def test_reusing_thread_of_a_finished_evaluation_fails_explicitly():
+    # PR-7: antes, o checkpointer continuava o estado anterior e os reducers somavam as duas
+    # execuções (nota agregada > 100 → ValidationError obscuro). Agora a ingestão recusa.
+    from avalia.domain.submission import Submission, TargetMetadata
+    from avalia.graph.build_graph import build_avalia_graph
+
+    graph = build_avalia_graph()
+    sub = Submission(
+        artifact_files={"a.py": "def agent(state):\n    return state\n"},
+        metadata=TargetMetadata(target_id="t", version="1"),
+    )
+    cfg = {"configurable": {"thread_id": "mesmo"}}
+    assert graph.invoke({"submission": sub}, config=cfg)["report"] is not None
+    with pytest.raises(ValueError, match="já pertence a uma avaliação concluída"):
+        graph.invoke({"submission": sub}, config=cfg)
+
+
+def test_run_evaluation_uses_a_fresh_thread_per_call():
+    from avalia.domain.submission import Submission, TargetMetadata
+    from avalia.graph.build_graph import build_avalia_graph
+    from avalia.hitl.approval import StaticApprovalProvider
+    from avalia.hitl.runner import run_evaluation
+
+    graph = build_avalia_graph()  # mesmo grafo reusado (ex.: serviço)
+    sub = Submission(
+        artifact_files={"a.py": "def agent(state):\n    return state\n"},
+        metadata=TargetMetadata(target_id="t", version="1"),
+    )
+    provider = StaticApprovalProvider([])
+    first = run_evaluation(graph, {"submission": sub}, approval_provider=provider)
+    second = run_evaluation(graph, {"submission": sub}, approval_provider=provider)
+    assert first["report"].header.score == second["report"].header.score <= 100
