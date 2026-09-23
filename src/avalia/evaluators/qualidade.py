@@ -6,6 +6,7 @@ justificativa (CA-06). Juiz: clareza dos prompts e rubricas. Declara `static_lim
 
 from __future__ import annotations
 
+from avalia.config.evaluator_config import DEFAULT_SCORING, ScoringConfig
 from avalia.domain.contracts import DimensionResult, TargetClassification
 from avalia.domain.enums import Confidence, Dimension, Urgency
 from avalia.domain.taxonomy import FindingType
@@ -26,6 +27,7 @@ def evaluate_qualidade(
     classification: TargetClassification | None = None,
     *,
     contribution: JudgeContribution | None = None,
+    scoring: ScoringConfig = DEFAULT_SCORING,
 ) -> DimensionResult:
     anchor = project_anchor(tsm)
     findings = []
@@ -63,6 +65,7 @@ def evaluate_qualidade(
     )
     return assemble(
         Dimension.QUALIDADE,
+        scoring=scoring,
         applicable=True,
         reasoning=reasoning,
         deterministic_findings=findings,

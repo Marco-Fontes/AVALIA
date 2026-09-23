@@ -7,6 +7,7 @@ cruza com Custo (RNF-12).
 
 from __future__ import annotations
 
+from avalia.config.evaluator_config import DEFAULT_SCORING, ScoringConfig
 from avalia.domain.contracts import DimensionResult, TargetClassification
 from avalia.domain.enums import Confidence, Dimension, Urgency
 from avalia.domain.taxonomy import FindingType
@@ -23,6 +24,7 @@ def evaluate_robustez(
     classification: TargetClassification | None = None,
     *,
     contribution: JudgeContribution | None = None,
+    scoring: ScoringConfig = DEFAULT_SCORING,
 ) -> DimensionResult:
     anchor = model_anchor(tsm)
     findings = []
@@ -106,6 +108,7 @@ def evaluate_robustez(
     )
     return assemble(
         Dimension.ROBUSTEZ,
+        scoring=scoring,
         applicable=True,
         reasoning=reasoning,
         deterministic_findings=findings,

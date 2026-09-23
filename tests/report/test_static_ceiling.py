@@ -14,7 +14,7 @@ import pytest
 
 from avalia.aggregate import aggregate
 from avalia.classify import classify_target
-from avalia.config.evaluator_config import EvaluatorConfig
+from avalia.config.evaluator_config import EvaluatorConfig, ScoringConfig
 from avalia.config.weight_profiles import load_weight_profiles
 from avalia.domain.contracts import ComponentInventory, EvaluationReport
 from avalia.evaluators.trajetoria import evaluate_trajetoria
@@ -74,8 +74,20 @@ def test_static_ceiling_present_in_json_projection():
 
 
 def test_static_ceiling_is_configurable():
-    report = _report(EvaluatorConfig(static_ceiling=85))
-    assert report.header.static_ceiling == 85
+    report = _report(EvaluatorConfig(static_ceiling=95))
+    assert report.header.static_ceiling == 95
+
+
+def test_static_ceiling_derives_from_scoring_by_default():
+    # DQ-03 (v1.4): sem valor explícito, o teto exibido acompanha a nota máxima do motor.
+    config = EvaluatorConfig(scoring=ScoringConfig(base_score=80, trajectory_base_score=75))
+    assert _report(config).header.static_ceiling == 80
+
+
+def test_static_ceiling_below_max_static_score_is_rejected():
+    # Um teto menor que a nota que o motor produz seria exibido como falso (89/100, "teto 85").
+    with pytest.raises(ValueError, match="static_ceiling"):
+        EvaluatorConfig(static_ceiling=85)
 
 
 def test_markdown_annotates_static_readiness():
@@ -87,7 +99,7 @@ def test_markdown_annotates_static_readiness():
 
 def test_static_ceiling_does_not_change_score_or_verdict():
     base = _report(EvaluatorConfig())
-    lowered = _report(EvaluatorConfig(static_ceiling=50))
+    raised = _report(EvaluatorConfig(static_ceiling=100))
     # Mudar o teto EXIBIDO não toca o cálculo: score e veredito permanecem idênticos.
-    assert base.header.score == lowered.header.score
-    assert base.header.verdict == lowered.header.verdict
+    assert base.header.score == raised.header.score
+    assert base.header.verdict == raised.header.verdict

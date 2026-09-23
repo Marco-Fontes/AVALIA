@@ -172,7 +172,7 @@ def build_report(
         verdict=aggregate_score.verdict,
         score=aggregate_score.score,
         confidence=_overall_confidence(results, classification),
-        static_ceiling=config.static_ceiling,  # Frente 2: teto nominal da Fase 1 (exibido)
+        static_ceiling=config.effective_static_ceiling,  # teto da Fase 1 (DQ-03: derivado)
     )
 
     substitutions = [s for dr in results for s in dr.model_substitutions]

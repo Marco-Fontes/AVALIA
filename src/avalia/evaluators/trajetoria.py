@@ -8,11 +8,14 @@ substituindo o fato.
 
 Trajetória NÃO é dimensão comportamental → não exige `static_limitations`.
 
-Rastreabilidade: RF-DIM-T1/T2/T3, RF-09..11, RF-14, RF-27; CA-09.
+v1.4 (DQ-03): nota base, penalidade e piso do loop sem teto vêm de `ScoringConfig` (RNF-06).
+
+Rastreabilidade: RF-DIM-T1/T2/T3, RF-09..11, RF-14, RF-27; CA-09; DQ-03.
 """
 
 from __future__ import annotations
 
+from avalia.config.evaluator_config import DEFAULT_SCORING, ScoringConfig
 from avalia.domain.contracts import (
     DimensionResult,
     Finding,
@@ -27,8 +30,6 @@ from avalia.extract.contradictions import detect_contradictions
 from avalia.judge.base import JudgeContribution
 
 TRAJETORIA_RUBRIC = "trajetoria/v1"
-_NO_CAP_PENALTY = 25
-_BASE_SCORE = 85
 
 
 def _is_inapplicable(tsm: TargetStaticModel, classification: TargetClassification | None) -> bool:
@@ -47,6 +48,7 @@ def evaluate_trajetoria(
     classification: TargetClassification | None = None,
     *,
     contribution: JudgeContribution | None = None,
+    scoring: ScoringConfig = DEFAULT_SCORING,
 ) -> DimensionResult:
     if _is_inapplicable(tsm, classification):
         return DimensionResult(
@@ -104,11 +106,15 @@ def evaluate_trajetoria(
         )
     ]
 
-    # Score ancorado em fato: loop sem teto → faixa condicional (50–74).
-    score = _BASE_SCORE
+    # Score ancorado em fato: loop sem teto → faixa condicional (piso configurável, default 50).
+    score = scoring.trajectory_base_score
     if uncapped:
-        score = max(50, _BASE_SCORE - _NO_CAP_PENALTY * len(uncapped))
-    score = max(0, score - 9 * len(contradictions))  # contradição (IMPORTANTE) penaliza
+        score = max(
+            scoring.trajectory_no_cap_floor,
+            scoring.trajectory_base_score - scoring.trajectory_no_cap_penalty * len(uncapped),
+        )
+    # contradição (IMPORTANTE) penaliza como qualquer achado importante
+    score = max(0, score - scoring.penalty_for(Urgency.IMPORTANTE) * len(contradictions))
     confidence = Confidence.ALTO  # veredito governado por fato determinístico
     confidence_reason: str | None = None
     if contradictions:

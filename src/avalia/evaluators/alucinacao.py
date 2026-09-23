@@ -6,6 +6,7 @@ abstenção, verificação factual. Declara que a taxa real não é medível na 
 
 from __future__ import annotations
 
+from avalia.config.evaluator_config import DEFAULT_SCORING, ScoringConfig
 from avalia.domain.contracts import DimensionResult, TargetClassification
 from avalia.domain.enums import Confidence, Dimension, Urgency
 from avalia.domain.taxonomy import FindingType
@@ -26,6 +27,7 @@ def evaluate_alucinacao(
     classification: TargetClassification | None = None,
     *,
     contribution: JudgeContribution | None = None,
+    scoring: ScoringConfig = DEFAULT_SCORING,
 ) -> DimensionResult:
     anchor = tsm.prompts[0].evidence if tsm.prompts else project_anchor(tsm, "prompt")
     findings = []
@@ -56,6 +58,7 @@ def evaluate_alucinacao(
     )
     return assemble(
         Dimension.ALUCINACAO,
+        scoring=scoring,
         applicable=True,
         reasoning=reasoning,
         deterministic_findings=findings,
