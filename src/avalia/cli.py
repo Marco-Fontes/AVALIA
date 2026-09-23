@@ -13,8 +13,11 @@ from __future__ import annotations
 import argparse
 import os
 import sys
+import traceback
 from pathlib import Path
 from typing import Any
+
+from pydantic import ValidationError
 
 from avalia.config.evaluator_config import EvaluatorConfig
 from avalia.domain.enums import RunStatus, Urgency
@@ -81,6 +84,11 @@ def _build_parser() -> argparse.ArgumentParser:
         type=float,
         default=None,
         help="Teto de tempo da avaliação, em segundos; atingido → laudo parcial.",
+    )
+    p.add_argument(
+        "--debug",
+        action="store_true",
+        help="Em caso de erro, mostra o rastreamento completo (traceback).",
     )
     p.add_argument(
         "--history-dir",
@@ -180,19 +188,84 @@ def _force_utf8_streams() -> None:
             pass
 
 
-def main(argv: list[str] | None = None) -> int:
-    _force_utf8_streams()
-    args = _build_parser().parse_args(argv)
+# Códigos de saída (v1.4, PLANO-QUALIDADE PR-6) — documentados no README.
+EXIT_OK = 0
+EXIT_INTERNAL = 1  # erro inesperado do próprio AVALIA (rode com --debug)
+EXIT_INPUT = 2  # entrada inválida: caminho, permissão, config, alvo sem código-fonte
+EXIT_INFRA = 3  # infraestrutura: repositório de histórico (Postgres via AVALIA_PG_DSN)
 
+
+class _CliError(Exception):
+    """Falha conhecida, com mensagem para o usuário e código de saída."""
+
+    def __init__(self, message: str, code: int) -> None:
+        super().__init__(message)
+        self.message = message
+        self.code = code
+
+
+def _is_database_error(exc: BaseException) -> bool:
+    """Erro do driver do Postgres (psycopg), sem importar o driver (dependência preguiçosa)."""
+    return any(cls.__module__.startswith("psycopg") for cls in type(exc).__mro__)
+
+
+def _make_config_or_fail(args: argparse.Namespace) -> EvaluatorConfig:
+    try:
+        return _make_config(args)
+    except ValidationError as exc:
+        details = "; ".join(
+            f"{'.'.join(str(p) for p in err['loc']) or 'config'}: {err['msg']}"
+            for err in exc.errors()
+        )
+        raise _CliError(f"configuração inválida — {details}", EXIT_INPUT) from exc
+
+
+def _make_repository_or_fail(args: argparse.Namespace) -> Any:
+    try:
+        return _make_repository(args)
+    except OSError as exc:
+        raise _CliError(
+            f"não foi possível usar o diretório de histórico '{args.history_dir}': {exc}",
+            EXIT_INPUT,
+        ) from exc
+    except Exception as exc:
+        if _is_database_error(exc) or isinstance(exc, ImportError):
+            raise _CliError(
+                "não foi possível conectar ao repositório de histórico Postgres "
+                f"(AVALIA_PG_DSN): {type(exc).__name__}: {exc}",
+                EXIT_INFRA,
+            ) from exc
+        raise
+
+
+def _write_outputs(report: Any, out_dir: Path, fmt: str) -> list[Path]:
+    try:
+        out_dir.mkdir(parents=True, exist_ok=True)
+        out_paths: list[Path] = []
+        if fmt in ("both", "md"):
+            md_path = out_dir / "laudo.md"
+            md_path.write_text(render_markdown(report), encoding="utf-8")
+            out_paths.append(md_path)
+        if fmt in ("both", "json"):
+            json_path = out_dir / "laudo.json"
+            json_path.write_text(render_json(report), encoding="utf-8")
+            out_paths.append(json_path)
+        return out_paths
+    except OSError as exc:
+        raise _CliError(
+            f"não foi possível gravar o laudo em '{out_dir}': {exc}", EXIT_INPUT
+        ) from exc
+
+
+def _run(args: argparse.Namespace) -> int:
     root = Path(args.path)
     target_id = args.target_id or (root.name if root.name else "alvo")
     try:
         files = read_target_directory(root)
-    except FileNotFoundError as exc:
-        print(f"Erro: {exc}", file=sys.stderr)
-        return 2
+    except OSError as exc:  # inclui FileNotFoundError e PermissionError
+        raise _CliError(str(exc), EXIT_INPUT) from exc
 
-    config = _make_config(args)
+    config = _make_config_or_fail(args)
     submission = Submission(
         artifact_files=files,
         metadata=TargetMetadata(target_id=target_id, version=args.version),
@@ -213,7 +286,7 @@ def main(argv: list[str] | None = None) -> int:
         gateway = ModelGateway(config)
         mode = "juiz-LLM (ModelGateway)"
 
-    repository = _make_repository(args)
+    repository = _make_repository_or_fail(args)
     graph = build_avalia_graph(gateway=gateway, repository=repository)
     provider = CLIApprovalProvider() if gateway is not None else StaticApprovalProvider([])
     result = run_evaluation(
@@ -223,23 +296,40 @@ def main(argv: list[str] | None = None) -> int:
     status = result.get("status")
     report = result.get("report")
     if report is None:
-        print(f"Erro: {result.get('error_message', 'avaliação não gerou laudo.')}", file=sys.stderr)
-        return 2
+        message = result.get("error_message") or "avaliação não gerou laudo."
+        raise _CliError(message, EXIT_INPUT)
 
-    out_dir = Path(args.out)
-    out_dir.mkdir(parents=True, exist_ok=True)
-    out_paths: list[Path] = []
-    if args.format in ("both", "md"):
-        md_path = out_dir / "laudo.md"
-        md_path.write_text(render_markdown(report), encoding="utf-8")
-        out_paths.append(md_path)
-    if args.format in ("both", "json"):
-        json_path = out_dir / "laudo.json"
-        json_path.write_text(render_json(report), encoding="utf-8")
-        out_paths.append(json_path)
-
+    out_paths = _write_outputs(report, Path(args.out), args.format)
     print(_summary(report, status or RunStatus.OK, mode, out_paths))
-    return 0
+    return EXIT_OK
+
+
+def main(argv: list[str] | None = None) -> int:
+    _force_utf8_streams()
+    args = _build_parser().parse_args(argv)
+    try:
+        return _run(args)
+    except _CliError as exc:
+        print(f"Erro: {exc.message}", file=sys.stderr)
+        if args.debug:
+            traceback.print_exc()
+        return exc.code
+    except Exception as exc:
+        if _is_database_error(exc):  # ex.: Postgres caiu durante a gravação do laudo
+            code = EXIT_INFRA
+            print(
+                f"Erro de infraestrutura (Postgres): {type(exc).__name__}: {exc}", file=sys.stderr
+            )
+        else:
+            code = EXIT_INTERNAL
+            print(
+                f"Erro interno inesperado: {type(exc).__name__}: {exc}. "
+                "Rode novamente com --debug para ver o rastreamento completo.",
+                file=sys.stderr,
+            )
+        if args.debug:
+            traceback.print_exc()
+        return code
 
 
 if __name__ == "__main__":  # pragma: no cover
