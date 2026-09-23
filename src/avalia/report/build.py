@@ -12,6 +12,7 @@ from __future__ import annotations
 from avalia.config.evaluator_config import EvaluatorConfig
 from avalia.domain.contracts import (
     AggregateScore,
+    BudgetUsage,
     ComponentInventory,
     DimensionResult,
     DivergenceRecord,
@@ -154,6 +155,7 @@ def build_report(
     partial: bool = False,
     partial_reasons: list[str] | None = None,
     budget_partial: bool = False,
+    budget_usage: BudgetUsage | None = None,
 ) -> EvaluationReport:
     divergences = divergences or []
     partial_reasons = partial_reasons or []
@@ -205,6 +207,12 @@ def build_report(
         known_limitations.append(
             f"Divergências de julgamento resolvidas por humano em: {', '.join(escalated)}."
         )
+    if budget_usage is not None and budget_usage.cost_unavailable_reason is not None:
+        # DQ-01: custo não calculável é DECLARADO (e o teto em moeda não pôde ser aplicado a ele).
+        known_limitations.append(
+            f"Custo em moeda não calculável — {budget_usage.cost_unavailable_reason}; "
+            "o teto em tokens continua aplicado (RF-12)."
+        )
     if no_history_note:
         known_limitations.append(
             "Sem versão anterior deste alvo; comparação histórica não disponível (CB-06)."
@@ -217,6 +225,7 @@ def build_report(
         readability=tsm.readability,
         known_limitations=known_limitations,
         model_substitutions=list(dict.fromkeys(substitutions)),
+        budget_usage=budget_usage,
     )
 
     # Ordenação estável por Dimension → laudo independe da ordem de chegada do fan-out (T-311).

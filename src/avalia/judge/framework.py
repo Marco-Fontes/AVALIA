@@ -22,7 +22,7 @@ import hashlib
 import json
 import time
 from collections.abc import Callable, Mapping, Sequence
-from typing import Any, Protocol
+from typing import Any, Literal, Protocol
 
 from pydantic import BaseModel, Field
 
@@ -31,7 +31,7 @@ from avalia.domain.contracts import Finding, JudgeOpinion
 from avalia.domain.enums import Band, Confidence, Dimension, Urgency
 from avalia.domain.evidence import EvidenceRef
 from avalia.domain.taxonomy import FindingType, dimension_of
-from avalia.judge.base import JudgeContribution
+from avalia.judge.base import JudgeContribution, UsageMeter
 from avalia.judge.rubrics import Rubric
 from avalia.model_gateway.errors import (
     MalformedOutputError,
@@ -135,11 +135,13 @@ class Judge:
         *,
         cache: JudgeCache | None = None,
         sleep: Callable[[float], None] = time.sleep,
+        meter: UsageMeter | None = None,
     ) -> None:
         self.gateway = gateway
         self.node_type = node_type
         self.cache = cache  # T3.2: memoização opcional de chamadas de juízo (None → desativada)
         self._sleep = sleep  # v1.4: espera do backoff, injetável (testes usam relógio falso)
+        self.meter = meter  # v1.4 (T-805): teto checado ANTES de cada chamada; uso contabilizado
 
     def _messages(
         self, *, rubric: Rubric, instruction: str, angle: str, target_content: Mapping[str, str]
@@ -155,16 +157,19 @@ class Judge:
         )
         return [{"role": "system", "content": system}, {"role": "user", "content": user}]
 
-    def _run_angle(self, messages: list[dict[str, str]]) -> tuple[JudgeVerdict, list[str]] | None:
+    def _run_angle(
+        self, messages: list[dict[str, str]]
+    ) -> tuple[JudgeVerdict, list[str], StructuredCallResult | None] | None:
         """Política escalonada: retry mesmo modelo (backoff) → re-prompt → fallback declarado.
 
-        T3.2: se houver cache e o conteúdo já foi julgado, reusa sem chamar o modelo (RNF-01-safe).
+        T3.2: se houver cache e o conteúdo já foi julgado, reusa sem chamar o modelo (RNF-01-safe);
+        nesse caso não há chamada (terceiro elemento `None`) e nada é consumido do orçamento.
         """
         cache_key = JudgeCache.key(self.node_type, messages) if self.cache is not None else None
         if self.cache is not None and cache_key is not None:
             cached = self.cache.get(cache_key)
             if cached is not None:
-                return cached
+                return cached[0], cached[1], None
         retry = self.gateway.retry_for(self.node_type)
         attempts = max(1, retry.max_attempts)
         primary_failure = "falha não identificada"
@@ -191,10 +196,9 @@ class Judge:
                     if role is ModelRole.PRIMARY
                     else [f"fallback de modelo aplicado (primário: {primary_failure})"]
                 )
-                outcome = (call.parsed, subs)
                 if self.cache is not None and cache_key is not None:
-                    self.cache.put(cache_key, outcome)  # só resultados bem-sucedidos
-                return outcome
+                    self.cache.put(cache_key, (call.parsed, subs))  # só resultados bem-sucedidos
+                return call.parsed, subs, call
             if role is ModelRole.PRIMARY:
                 primary_failure = _describe_failure(last_error, attempts)
         return None  # (4) esgotado → parcial
@@ -213,17 +217,36 @@ class Judge:
         findings: list[Finding] = []
         subs: list[str] = []
         partial = False
+        partial_reason: Literal["fallback", "budget"] | None = None
+        budget_detail: str | None = None
+        input_tokens = output_tokens = 0
+        cost = 0.0
+        unpriced: list[str] = []
 
         for angle in angles:
+            # T-805/CA-13: teto checado onde o gasto acontece; atingido → para (laudo parcial).
+            exceeded = self.meter.exceeded() if self.meter is not None else None
+            if exceeded is not None:
+                partial, partial_reason, budget_detail = True, "budget", exceeded
+                break
             messages = self._messages(
                 rubric=rubric, instruction=instruction, angle=angle, target_content=target_content
             )
             outcome = self._run_angle(messages)
             if outcome is None:
                 partial = True
+                partial_reason = partial_reason or "fallback"
                 continue
-            verdict, sub = outcome
+            verdict, sub, call = outcome
             subs += sub
+            if call is not None:
+                input_tokens += call.input_tokens
+                output_tokens += call.output_tokens
+                if self.meter is not None:
+                    charge = self.meter.charge(call.model, call.input_tokens, call.output_tokens)
+                    cost += charge.cost or 0.0
+                    if charge.unpriced_model is not None:
+                        unpriced.append(charge.unpriced_model)
             opinions.append(
                 JudgeOpinion(
                     angle=angle,
@@ -264,4 +287,10 @@ class Judge:
             confidence=confidence,
             model_substitutions=list(dict.fromkeys(subs)),
             partial=partial,
+            partial_reason=partial_reason,
+            budget_detail=budget_detail,
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
+            cost=cost,
+            unpriced_models=list(dict.fromkeys(unpriced)),
         )

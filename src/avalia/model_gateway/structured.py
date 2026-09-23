@@ -27,13 +27,15 @@ from avalia.model_gateway.roles import ModelRole
 
 
 class StructuredCallResult(BaseModel):
-    """Resultado de uma chamada de juízo: saída parseada + uso de tokens (0 se não reportado)."""
+    """Resultado de uma chamada de juízo: saída parseada + uso de tokens (0 se não reportado) +
+    slug do modelo que respondeu (para precificar a chamada — DQ-01; `None` se desconhecido)."""
 
     model_config = ConfigDict(frozen=True, arbitrary_types_allowed=True)
 
     parsed: Any
     input_tokens: int = 0
     output_tokens: int = 0
+    model: str | None = None
 
 
 def _usage(raw: Any) -> tuple[int, int]:
@@ -70,6 +72,10 @@ class StructuredInvoker:
     def with_structured_output(self, node_type: str, role: ModelRole, schema: Any) -> Any:
         raise NotImplementedError
 
+    def _model_name(self, node_type: str, role: ModelRole) -> str | None:
+        """Slug do modelo que atende `(nó, papel)`, se conhecido (dublês: `None`)."""
+        return None
+
     def _bind(self, node_type: str, role: ModelRole, schema: Any) -> Any:
         """Cliente vinculado ao schema. Default: `with_structured_output` (dublês de teste)."""
         return self.with_structured_output(node_type, role, schema)
@@ -85,4 +91,5 @@ class StructuredInvoker:
             raise
         except Exception as exc:  # fronteira com o SDK: toda falha da chamada é classificada
             raise translate_provider_error(exc) from exc
-        return normalize_structured_output(out, schema)
+        result = normalize_structured_output(out, schema)
+        return result.model_copy(update={"model": self._model_name(node_type, role)})

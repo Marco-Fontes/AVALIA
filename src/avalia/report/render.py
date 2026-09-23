@@ -8,12 +8,33 @@ Rastreabilidade: plan §3.10; RNF-10.
 
 from __future__ import annotations
 
-from avalia.domain.contracts import EvaluationReport
+from avalia.domain.contracts import BudgetUsage, EvaluationReport
 
 
 def render_json(report: EvaluationReport) -> str:
     """Projeção máquina — JSON fiel do contrato."""
     return report.model_dump_json(indent=2)
+
+
+def _ceiling(value: object | None) -> str:
+    return "sem teto" if value is None else f"teto {value}"
+
+
+def describe_budget_usage(usage: BudgetUsage) -> str:
+    """Linha legível do consumo vs. tetos (spec v0.5 §4.2.8, DQ-01) — usada no MD e na CLI."""
+    tokens = (
+        f"{usage.total_tokens} tokens ({usage.input_tokens} entrada / {usage.output_tokens} "
+        f"saída; {_ceiling(usage.token_ceiling)})"
+    )
+    if usage.cost is not None:
+        cost = f"custo {usage.cost:.4f} ({_ceiling(usage.cost_ceiling)})"
+    else:
+        cost = f"custo não calculável — {usage.cost_unavailable_reason}"
+    elapsed = f"tempo {usage.elapsed_s:.1f}s ({_ceiling(usage.time_ceiling_s)})"
+    parts = [tokens, cost, elapsed]
+    if usage.degraded_dims:
+        parts.append("dimensões degradadas: " + ", ".join(d.value for d in usage.degraded_dims))
+    return "; ".join(parts)
 
 
 def render_markdown(report: EvaluationReport) -> str:
@@ -105,6 +126,8 @@ def render_markdown(report: EvaluationReport) -> str:
     lines.append(f"- Componentes ausentes: {', '.join(meta.inventory.missing) or '—'}")
     if meta.model_substitutions:
         lines.append(f"- Substituições de modelo: {'; '.join(meta.model_substitutions)}")
+    if meta.budget_usage is not None:
+        lines.append(f"- Consumo de orçamento: {describe_budget_usage(meta.budget_usage)}")
     for lim in meta.known_limitations:
         lines.append(f"- Limitação: {lim}")
     lines.append("")

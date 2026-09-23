@@ -165,6 +165,9 @@ class ModelGateway(StructuredInvoker):
             )
         return fn(schema, include_raw=True) if include_raw else fn(schema)
 
+    def _model_name(self, node_type: str, role: ModelRole) -> str | None:
+        return self.resolve(node_type, role).model
+
     def _bind(self, node_type: str, role: ModelRole, schema: Any) -> Any:
         """Vincula com `include_raw=True` (erro de parse como dado + uso de tokens). Falha ao
         CONSTRUIR o cliente (ex.: credencial ausente) = modelo indisponível → fallback (CB-10)."""

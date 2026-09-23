@@ -19,6 +19,7 @@ from avalia.domain.contracts import (
     ResolvedBy,
 )
 from avalia.domain.tsm import TargetStaticModel
+from avalia.judge.base import UsageMeter
 from avalia.judge.contributors import reconcile
 from avalia.judge.framework import GatewayLike, JudgeCache
 
@@ -55,9 +56,10 @@ def reconcile_candidate(
     gateway: GatewayLike,
     tsm: TargetStaticModel,
     cache: JudgeCache | None = None,
+    meter: UsageMeter | None = None,
 ) -> DivergenceRecord | None:
     """Re-julga estrito; convergência para UMA faixa → resolvido (auto). Senão `None` (persiste)."""
-    contribution = reconcile(gateway, candidate.dimension, tsm, cache=cache)
+    contribution = reconcile(gateway, candidate.dimension, tsm, cache=cache, meter=meter)
     new_bands = {o.band for o in contribution.opinions if o.band is not None}
     if len(new_bands) == 1:
         band = next(iter(new_bands))

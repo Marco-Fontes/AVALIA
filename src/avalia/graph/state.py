@@ -32,29 +32,46 @@ from avalia.domain.weights import WeightProfile
 
 
 class BudgetState(BaseModel):
-    """Estado de custo/tempo da execução (T-802/RF-12). `partial` sinaliza laudo parcial honesto.
+    """Estado de custo/tempo da execução (T-802/T-805, RF-12). `partial` → laudo parcial honesto.
 
-    Acumulado ao longo do grafo; no fan-out, cada ramo pode contribuir um delta (custo/parcial)
-    mesclado pelo reducer `merge_budget`. `started_monotonic` é a âncora de tempo decorrido.
+    Acumulado ao longo do grafo; no fan-out, cada ramo contribui um DELTA (tokens, custo, parcial,
+    dimensão degradada) mesclado pelo reducer `merge_budget`. É o registro auditável do consumo
+    (vai para `budget_usage` no laudo); a APLICAÇÃO do teto em tempo real é do `BudgetMeter`.
+
+    `started_at` é horário de parede (segundos epoch) — v1.4: o relógio monotônico não é comparável
+    entre processos, e o estado é persistido no checkpoint (retomada de HITL em outro processo).
+    `accumulated_cost` soma só chamadas com preço conhecido; `unpriced_models` lista as demais.
     """
 
     model_config = ConfigDict(frozen=True)
 
-    started_monotonic: float = Field(default_factory=time.monotonic)
+    started_at: float = Field(default_factory=time.time)
+    input_tokens: int = 0
+    output_tokens: int = 0
     accumulated_cost: float = 0.0
+    unpriced_models: list[str] = Field(default_factory=list)
     partial: bool = False
     reasons: list[str] = Field(default_factory=list)
+    degraded_dims: list[Dimension] = Field(default_factory=list)
+
+
+def _union[T](a: list[T], b: list[T]) -> list[T]:
+    return list(dict.fromkeys([*a, *b]))
 
 
 def merge_budget(current: BudgetState | None, update: BudgetState) -> BudgetState:
-    """Reducer do `budget`: tempo = mais antigo; custo somado; partial em OR; razões unidas."""
+    """Reducer do `budget`: início = mais antigo; consumo somado; partial em OR; listas unidas."""
     if current is None:
         return update
     return BudgetState(
-        started_monotonic=min(current.started_monotonic, update.started_monotonic),
+        started_at=min(current.started_at, update.started_at),
+        input_tokens=current.input_tokens + update.input_tokens,
+        output_tokens=current.output_tokens + update.output_tokens,
         accumulated_cost=current.accumulated_cost + update.accumulated_cost,
+        unpriced_models=_union(current.unpriced_models, update.unpriced_models),
         partial=current.partial or update.partial,
-        reasons=list(dict.fromkeys([*current.reasons, *update.reasons])),
+        reasons=_union(current.reasons, update.reasons),
+        degraded_dims=_union(current.degraded_dims, update.degraded_dims),
     )
 
 
