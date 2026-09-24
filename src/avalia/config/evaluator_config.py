@@ -89,6 +89,19 @@ class BandThresholds(BaseModel):
         return self
 
 
+class ModelPrice(BaseModel):
+    """Preço de um modelo por milhão de tokens (v1.4, DQ-01). DADO de config (RNF-06): sem preço
+    configurado, o custo em moeda é declarado como não calculável — nunca inventado."""
+
+    model_config = ConfigDict(frozen=True)
+
+    input_per_mtok: float = Field(ge=0.0)
+    output_per_mtok: float = Field(ge=0.0)
+
+    def cost(self, input_tokens: int, output_tokens: int) -> float:
+        return (input_tokens * self.input_per_mtok + output_tokens * self.output_per_mtok) / 1e6
+
+
 class ScoringConfig(BaseModel):
     """Parâmetros de pontuação das dimensões (v1.4, DQ-03, RNF-06; plan §3.2f).
 
@@ -143,8 +156,13 @@ class EvaluatorConfig(BaseModel):
     weights: dict[Dimension, float] | None = None
     thresholds: BandThresholds = BandThresholds()
     confidence_floor: Confidence | None = None
+    # Tetos de orçamento das chamadas de juízo (RF-12/CA-13; v1.4, DQ-01). `token_ceiling` (soma
+    # de tokens de entrada+saída) é o teto principal, sempre aplicável. `cost_ceiling` é em MOEDA
+    # e só é calculável com `model_prices` (slug do modelo → preço); sem preço, o laudo declara.
+    token_ceiling: int | None = Field(default=None, gt=0)
     cost_ceiling: float | None = Field(default=None, gt=0)
     time_ceiling_s: float | None = Field(default=None, gt=0)
+    model_prices: dict[str, ModelPrice] = Field(default_factory=dict)
     # Teto determinístico de cobertura na indexação (T-105/RF-12): acima dele, os arquivos de
     # menor sinal são amostrados (não analisados a fundo) e declarados em AnalysisCoverage.
     max_analyzed_files: int | None = Field(default=None, gt=0)

@@ -307,6 +307,31 @@ class ReportHeader(BaseModel):
     static_ceiling: int = Field(default=90, ge=0, le=100)
 
 
+class BudgetUsage(BaseModel):
+    """Consumo de orçamento da avaliação vs. tetos (spec v0.5 §4.2.8; RF-12/CA-13; DQ-01).
+
+    Tokens e custo vêm do uso REPORTADO pelas chamadas de juízo (0 no modo determinístico). `cost`
+    só é preenchido quando todo modelo usado tem preço configurado; senão fica `None` e
+    `cost_unavailable_reason` declara o motivo — custo nunca é inventado nem omitido em silêncio.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    input_tokens: int = Field(default=0, ge=0)
+    output_tokens: int = Field(default=0, ge=0)
+    cost: float | None = None
+    cost_unavailable_reason: str | None = None
+    elapsed_s: float = Field(default=0.0, ge=0.0)
+    token_ceiling: int | None = None
+    cost_ceiling: float | None = None
+    time_ceiling_s: float | None = None
+    degraded_dims: list[Dimension] = Field(default_factory=list)
+
+    @property
+    def total_tokens(self) -> int:
+        return self.input_tokens + self.output_tokens
+
+
 class ReportMetadata(BaseModel):
     """Bloco 4.2.8: config efetiva, inventário, cobertura, limitações (RNF-08, RNF-10)."""
 
@@ -318,6 +343,7 @@ class ReportMetadata(BaseModel):
     readability: ReadabilityReport
     known_limitations: list[str] = Field(default_factory=list)
     model_substitutions: list[str] = Field(default_factory=list)  # RNF-12
+    budget_usage: BudgetUsage | None = None  # v1.4 (spec v0.5 §4.2.8, DQ-01) — aditivo
 
 
 class EvaluationReport(BaseModel):

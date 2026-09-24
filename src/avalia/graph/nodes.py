@@ -2,7 +2,11 @@
 
 Cada nó lê/escreve o `AvaliaState` e delega à lógica pura (ingest/classify/weights/evaluators/
 aggregate/report). Nada executa o alvo (RNF-05) — só lê o TSM e fala com modelos via gateway.
-O juiz da Trajetória é injetado opcionalmente (M1 roda determinístico por padrão).
+O juiz é injetado opcionalmente (determinístico por padrão).
+
+v1.4 (T-805): os nós que chamam juízes recebem o `RunnableConfig` do LangGraph para achar os
+recursos DA EXECUÇÃO (`RunRegistry`, chave = `thread_id`): o `BudgetMeter`, que aplica os tetos
+antes de cada chamada, e o `JudgeCache`. O consumo reportado vira delta no `BudgetState`.
 """
 
 from __future__ import annotations
@@ -10,6 +14,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import Any
 
+from langchain_core.runnables import RunnableConfig
 from langgraph.types import interrupt
 
 from avalia.aggregate import aggregate
@@ -27,25 +32,41 @@ from avalia.domain.contracts import (
 from avalia.domain.enums import Confidence, Dimension, RunStatus
 from avalia.evaluators.registry import EVALUATORS
 from avalia.extract.tsm_builder import build_tsm
-from avalia.graph.budget import over_budget
+from avalia.graph.budget import RunRegistry, budget_usage, over_budget
 from avalia.graph.state import AvaliaState, BudgetState
 from avalia.ingest import ingest_validate
+from avalia.judge.base import JudgeContribution
 from avalia.judge.contributors import build_contribution
-from avalia.judge.framework import GatewayLike, JudgeCache
+from avalia.judge.framework import GatewayLike
 from avalia.persistence.repository import ReportRepository, make_record
 from avalia.report.build import build_report
 from avalia.weights_select import select_weights
 
 
-def n0_ingest(state: AvaliaState) -> dict[str, Any]:
-    out = ingest_validate(state["submission"])
-    # Inicializa o budget (âncora de tempo) já na entrada, salvo se o teste o injetou (RF-12).
-    update: dict[str, Any] = {"inventory": out.inventory, "status": out.status}
-    if state.get("budget") is None:
-        update["budget"] = BudgetState()
-    if out.error_message is not None:
-        update["error_message"] = out.error_message
-    return update
+def run_key(config: RunnableConfig | None) -> str:
+    """Chave da execução no `RunRegistry` (o `thread_id` do checkpointer)."""
+    configurable = (config or {}).get("configurable") or {}
+    return str(configurable.get("thread_id", "default"))
+
+
+def make_ingest_node(
+    registry: RunRegistry | None = None,
+) -> Callable[[AvaliaState, RunnableConfig], dict[str, Any]]:
+    """N0: ingestão/validação; abre os recursos da execução (medidor + cache) — T-805."""
+
+    def node(state: AvaliaState, config: RunnableConfig) -> dict[str, Any]:
+        if registry is not None:
+            registry.start(run_key(config), state["submission"].config)
+        out = ingest_validate(state["submission"])
+        # Inicializa o budget (âncora de tempo) já na entrada, salvo se o teste o injetou (RF-12).
+        update: dict[str, Any] = {"inventory": out.inventory, "status": out.status}
+        if state.get("budget") is None:
+            update["budget"] = BudgetState()
+        if out.error_message is not None:
+            update["error_message"] = out.error_message
+        return update
+
+    return node
 
 
 def n1_index(state: AvaliaState) -> dict[str, Any]:
@@ -83,32 +104,76 @@ def _degrade_for_exhausted_fallback(dr: DimensionResult) -> DimensionResult:
     )
 
 
+def _degrade_for_budget(dr: DimensionResult, detail: str | None) -> DimensionResult:
+    """CA-13/T-805: teto de orçamento atingido no meio do juízo → a dimensão fica ancorada nos
+    checks determinísticos (o score já é deles — regra 6), com confiança baixa DECLARADA."""
+    return dr.model_copy(
+        update={
+            "confidence": Confidence.BAIXO,
+            "confidence_reason": (
+                f"Teto de orçamento atingido ({detail or 'sem detalhe'}); juízo incompleto — "
+                "dimensão ancorada nos checks determinísticos (RF-12/CA-13)."
+            ),
+        }
+    )
+
+
+def _usage_delta(dimension: Dimension, contribution: JudgeContribution) -> BudgetState:
+    """Delta auditável do consumo de uma dimensão (tokens/custo) + parcial, se houver."""
+    reasons: list[str] = []
+    degraded: list[Dimension] = []
+    if contribution.partial_reason == "budget":
+        reasons.append(
+            f"teto de orçamento atingido na dimensão {dimension.value} "
+            f"({contribution.budget_detail}) — juízes restantes ignorados (CA-13)"
+        )
+        degraded.append(dimension)
+    elif contribution.partial:
+        reasons.append(f"fallback de modelo esgotado na dimensão {dimension.value} (CB-10)")
+        degraded.append(dimension)
+    return BudgetState(
+        input_tokens=contribution.input_tokens,
+        output_tokens=contribution.output_tokens,
+        accumulated_cost=contribution.cost,
+        unpriced_models=list(contribution.unpriced_models),
+        partial=contribution.partial,
+        reasons=reasons,
+        degraded_dims=degraded,
+    )
+
+
 def make_dimension_node(
     dimension: Dimension,
     gateway: GatewayLike | None = None,
-    cache: JudgeCache | None = None,
-) -> Callable[[AvaliaState], dict[str, Any]]:
+    registry: RunRegistry | None = None,
+) -> Callable[[AvaliaState, RunnableConfig], dict[str, Any]]:
     """Nó de avaliação de uma dimensão (fan-out). Se `gateway`, cabeia o juiz (T-302)."""
     evaluator = EVALUATORS[dimension]
 
-    def node(state: AvaliaState) -> dict[str, Any]:
+    def node(state: AvaliaState, config: RunnableConfig) -> dict[str, Any]:
         tsm = state["tsm"]
         classification = state["classification"]
+        run = registry.get(run_key(config), state["submission"].config) if registry else None
         contribution = (
-            build_contribution(gateway, dimension, tsm, cache=cache)
+            build_contribution(
+                gateway,
+                dimension,
+                tsm,
+                cache=run.cache if run else None,
+                meter=run.meter if run else None,
+            )
             if gateway is not None
             else None
         )
         scoring = state["submission"].config.scoring  # DQ-03: pontuação vem da config
         result = evaluator(tsm, classification, contribution=contribution, scoring=scoring)
         update: dict[str, Any] = {}
-        # CB-10: juiz esgotou o fallback de modelo → degrada a dimensão e sinaliza laudo parcial.
-        if contribution is not None and contribution.partial:
-            result = _degrade_for_exhausted_fallback(result)
-            update["budget"] = BudgetState(
-                partial=True,
-                reasons=[f"fallback de modelo esgotado na dimensão {dimension.value} (CB-10)"],
-            )
+        if contribution is not None:
+            if contribution.partial_reason == "budget":  # CA-13: teto atingido no juízo
+                result = _degrade_for_budget(result, contribution.budget_detail)
+            elif contribution.partial:  # CB-10: juiz esgotou o fallback de modelo
+                result = _degrade_for_exhausted_fallback(result)
+            update["budget"] = _usage_delta(dimension, contribution)
         # reducer operator.add concatena os 7 ramos no fan-in (ordenação estável em aggregate).
         update["dimension_results"] = [result]
         return update
@@ -149,18 +214,26 @@ def route_after_weights(state: AvaliaState) -> list[str] | str:
 
 def make_detect_divergence_node(
     gateway: GatewayLike | None = None,
-    cache: JudgeCache | None = None,
-) -> Callable[[AvaliaState], dict[str, Any]]:
+    registry: RunRegistry | None = None,
+) -> Callable[[AvaliaState, RunnableConfig], dict[str, Any]]:
     """N4 fan-in: detecta divergências e tenta reconciliar automaticamente (T-401/T-402)."""
 
-    def node(state: AvaliaState) -> dict[str, Any]:
-        config = state["submission"].config
-        candidates = detect_candidates(state["dimension_results"], config)
+    def node(state: AvaliaState, config: RunnableConfig) -> dict[str, Any]:
+        eval_config = state["submission"].config
+        candidates = detect_candidates(state["dimension_results"], eval_config)
+        run = registry.get(run_key(config), eval_config) if registry else None
+        before = run.meter.snapshot() if run else None
         resolved: list[DivergenceRecord] = []
         pending: list[DivergenceCandidate] = []
         for candidate in candidates:
             record = (
-                reconcile_candidate(candidate, gateway=gateway, tsm=state["tsm"], cache=cache)
+                reconcile_candidate(
+                    candidate,
+                    gateway=gateway,
+                    tsm=state["tsm"],
+                    cache=run.cache if run else None,
+                    meter=run.meter if run else None,
+                )
                 if gateway is not None
                 else None
             )
@@ -168,7 +241,17 @@ def make_detect_divergence_node(
                 resolved.append(record)
             else:
                 pending.append(candidate)
-        return {"divergences": resolved, "pending_divergences": pending}
+        update: dict[str, Any] = {"divergences": resolved, "pending_divergences": pending}
+        if run is not None and before is not None and candidates:
+            # N4 roda sozinho (após o fan-in): o delta do medidor é o consumo da reconciliação.
+            spent = run.meter.snapshot().since(before)
+            update["budget"] = BudgetState(
+                input_tokens=spent.input_tokens,
+                output_tokens=spent.output_tokens,
+                accumulated_cost=spent.cost,
+                unpriced_models=list(spent.unpriced_models),
+            )
+        return update
 
     return node
 
@@ -229,16 +312,18 @@ def make_compare_history_node(
 
 def make_build_report_node(
     repository: ReportRepository | None = None,
-) -> Callable[[AvaliaState], dict[str, Any]]:
-    """N7: monta o laudo (com comparação) e o persiste no repositório (T-701/T-603)."""
+    registry: RunRegistry | None = None,
+) -> Callable[[AvaliaState, RunnableConfig], dict[str, Any]]:
+    """N7: monta o laudo (com comparação e consumo de orçamento) e o persiste (T-701/T-603)."""
 
-    def node(state: AvaliaState) -> dict[str, Any]:
+    def node(state: AvaliaState, config: RunnableConfig) -> dict[str, Any]:
         comparison = state.get("comparison")
         no_history = repository is not None and comparison is None
         budget = state.get("budget")
         budget_reasons = list(budget.reasons) if budget else []
         budget_partial = bool(budget and budget.partial)
         partial = bool(budget_partial or state["tsm"].coverage.sampled)
+        eval_config = state["submission"].config
         report = build_report(
             classification=state["classification"],
             weights=state["effective_weights"],
@@ -246,16 +331,19 @@ def make_build_report_node(
             results=state["dimension_results"],
             inventory=state["inventory"],
             tsm=state["tsm"],
-            config=state["submission"].config,
+            config=eval_config,
             divergences=list(state.get("divergences", [])),
             comparison=comparison,
             no_history_note=no_history,
             partial=partial,
             partial_reasons=budget_reasons,
             budget_partial=budget_partial,
+            budget_usage=budget_usage(budget, eval_config),  # spec v0.5 §4.2.8 (DQ-01)
         )
         if repository is not None:
             repository.save(make_record(report, state["submission"].metadata))
+        if registry is not None:
+            registry.finish(run_key(config))  # libera medidor/cache desta execução
         return {"report": report, "status": RunStatus.PARTIAL if partial else RunStatus.OK}
 
     return node

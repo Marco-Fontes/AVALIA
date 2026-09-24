@@ -15,7 +15,7 @@ from pydantic import BaseModel, ConfigDict
 from avalia.domain.enums import Dimension
 from avalia.domain.evidence import EvidenceRef
 from avalia.domain.tsm import TargetStaticModel
-from avalia.judge.base import JudgeContribution
+from avalia.judge.base import JudgeContribution, UsageMeter
 from avalia.judge.framework import GatewayLike, Judge, JudgeCache
 from avalia.judge.rubrics import get_rubric
 
@@ -77,9 +77,10 @@ def _assess(
     instruction: str,
     *,
     cache: JudgeCache | None = None,
+    meter: UsageMeter | None = None,
 ) -> JudgeContribution:
     spec = DIMENSION_JUDGE_SPEC[dimension]
-    judge = Judge(gateway, node_type=f"juiz_{dimension.value}", cache=cache)
+    judge = Judge(gateway, node_type=f"juiz_{dimension.value}", cache=cache, meter=meter)
     return judge.assess(
         dimension=dimension,
         rubric=get_rubric(spec.rubric_id),
@@ -96,9 +97,15 @@ def build_contribution(
     tsm: TargetStaticModel,
     *,
     cache: JudgeCache | None = None,
+    meter: UsageMeter | None = None,
 ) -> JudgeContribution:
     return _assess(
-        gateway, dimension, tsm, DIMENSION_JUDGE_SPEC[dimension].instruction, cache=cache
+        gateway,
+        dimension,
+        tsm,
+        DIMENSION_JUDGE_SPEC[dimension].instruction,
+        cache=cache,
+        meter=meter,
     )
 
 
@@ -108,8 +115,14 @@ def reconcile(
     tsm: TargetStaticModel,
     *,
     cache: JudgeCache | None = None,
+    meter: UsageMeter | None = None,
 ) -> JudgeContribution:
     """Re-julgamento estrito para reconciliar divergência (T-402), ancorado no fato do TSM."""
     return _assess(
-        gateway, dimension, tsm, _RECONCILE_INSTRUCTION.format(dim=dimension.value), cache=cache
+        gateway,
+        dimension,
+        tsm,
+        _RECONCILE_INSTRUCTION.format(dim=dimension.value),
+        cache=cache,
+        meter=meter,
     )

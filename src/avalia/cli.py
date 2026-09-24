@@ -23,7 +23,7 @@ from avalia.graph.build_graph import build_avalia_graph
 from avalia.hitl.approval import CLIApprovalProvider, StaticApprovalProvider
 from avalia.hitl.runner import run_evaluation
 from avalia.loader import read_target_directory
-from avalia.report.render import render_json, render_markdown
+from avalia.report.render import describe_budget_usage, render_json, render_markdown
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -62,6 +62,26 @@ def _build_parser() -> argparse.ArgumentParser:
         default=None,
         help="Teto de arquivos analisados a fundo; acima dele o resto é amostrado (laudo parcial).",
     )
+    # T-805 (v1.4, DQ-01): tetos de orçamento das chamadas de juízo (só têm efeito com --llm, exceto
+    # o de tempo). Atingido o teto, as dimensões restantes ficam no determinístico → laudo PARCIAL.
+    p.add_argument(
+        "--token-ceiling",
+        type=int,
+        default=None,
+        help="Teto de tokens (entrada+saída) das chamadas de juízo; atingido → laudo parcial.",
+    )
+    p.add_argument(
+        "--cost-ceiling",
+        type=float,
+        default=None,
+        help="Teto de custo em moeda; só calculável com model_prices na config (senão declarado).",
+    )
+    p.add_argument(
+        "--time-ceiling",
+        type=float,
+        default=None,
+        help="Teto de tempo da avaliação, em segundos; atingido → laudo parcial.",
+    )
     p.add_argument(
         "--history-dir",
         default=None,
@@ -73,7 +93,12 @@ def _build_parser() -> argparse.ArgumentParser:
 
 
 def _make_config(args: argparse.Namespace) -> EvaluatorConfig:
-    return EvaluatorConfig(max_analyzed_files=args.max_files)
+    return EvaluatorConfig(
+        max_analyzed_files=args.max_files,
+        token_ceiling=args.token_ceiling,
+        cost_ceiling=args.cost_ceiling,
+        time_ceiling_s=args.time_ceiling,
+    )
 
 
 def _make_repository(args: argparse.Namespace) -> Any:
@@ -119,6 +144,9 @@ def _summary(report: Any, status: RunStatus, mode: str, out_paths: list[Path]) -
         1 for dr in report.dimensions for f in dr.findings if f.urgency is Urgency.IMPORTANTE
     )
     lines.append(f"  Achados: {n_crit} crítico(s), {n_imp} importante(s)")
+    usage = report.metadata.budget_usage
+    if usage is not None:
+        lines.append(f"  Consumo: {describe_budget_usage(usage)}")
     subs = sorted({s for dr in report.dimensions for s in dr.model_substitutions})
     if subs:
         lines.append(f"  Substituições de modelo (RNF-12): {'; '.join(subs)}")

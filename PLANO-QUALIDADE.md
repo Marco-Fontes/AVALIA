@@ -98,6 +98,7 @@ testes-guarda), CI completo com Postgres real, rastreabilidade em todo módulo, 
 - `cli.py`: tipar `_summary(report: EvaluationReport)` e `_make_repository(...) -> ReportRepository | None`.
 - `aggregate.py`: calcular `_below_floor` uma vez; `registry.language_for_path` via `Path.suffix` (cuidando de `.env` e sufixos compostos).
 - Versão do pacote `0.0.0` → `0.11.0` (`pyproject.toml` e `__init__.py`).
+- **Achado no PR-3 (pré-existente):** reinvocar o MESMO grafo compilado com o MESMO `thread_id` continua o estado do checkpoint, e `dimension_results` (reducer `operator.add`) acumula as duas execuções — nota agregada > 100 (`ValidationError`). A CLI não é afetada (grafo e `MemorySaver` novos por execução), mas um serviço que reuse o grafo seria. Correção proposta: a ingestão zera as listas acumuladas quando começa uma nova submissão (ou o runner gera um `thread_id` por execução), com teste de reuso.
 
 ## 5. Checklist
 
@@ -105,7 +106,7 @@ testes-guarda), CI completo com Postgres real, rastreabilidade em todo módulo, 
 - [x] **PR-1** — resiliência real do juiz (`model_gateway/{errors,structured,roles}.py`; +33 testes; 295 verdes)
 - [x] **PR-2** — harness único (`extract/harness.py`; também unificou a 3ª cópia, em `extract/prioritize.py`; +20 testes)
 - [x] **PR-4** — pontuação como config (`ScoringConfig`, inclusive o piso 50 e a penalidade de contradição da Trajetória; teto derivado; guarda de AST; +10 testes)
-- [ ] **PR-3** — orçamento com consumo real
+- [x] **PR-3** — orçamento com consumo real (`BudgetMeter`/`RunRegistry`; `budget_usage` no laudo; flags de teto na CLI; +12 testes)
 - [ ] **PR-5** — achados do juiz + limitação da Robustez
 - [ ] **PR-6** — CLI + cobertura
 - [ ] **PR-7** — melhorias finas
