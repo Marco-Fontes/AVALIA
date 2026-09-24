@@ -99,7 +99,8 @@ def make_dimension_node(
             if gateway is not None
             else None
         )
-        result = evaluator(tsm, classification, contribution=contribution)
+        scoring = state["submission"].config.scoring  # DQ-03: pontuação vem da config
+        result = evaluator(tsm, classification, contribution=contribution, scoring=scoring)
         update: dict[str, Any] = {}
         # CB-10: juiz esgotou o fallback de modelo → degrada a dimensão e sinaliza laudo parcial.
         if contribution is not None and contribution.partial:
@@ -123,7 +124,11 @@ def make_budget_degraded_node() -> Callable[[AvaliaState], dict[str, Any]]:
         tsm = state["tsm"]
         classification = state["classification"]
         reason = over_budget(state, state["submission"].config) or "teto de orçamento atingido"
-        results = [EVALUATORS[d](tsm, classification, contribution=None) for d in Dimension]
+        scoring = state["submission"].config.scoring  # DQ-03
+        results = [
+            EVALUATORS[d](tsm, classification, contribution=None, scoring=scoring)
+            for d in Dimension
+        ]
         return {
             "dimension_results": results,
             "budget": BudgetState(

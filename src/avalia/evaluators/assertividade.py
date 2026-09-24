@@ -6,6 +6,7 @@ Determinístico (A2): presença de ramo de escalonamento/tratamento de baixa con
 
 from __future__ import annotations
 
+from avalia.config.evaluator_config import DEFAULT_SCORING, ScoringConfig
 from avalia.domain.contracts import DimensionResult, TargetClassification
 from avalia.domain.enums import Confidence, Dimension, Urgency
 from avalia.domain.taxonomy import FindingType
@@ -27,6 +28,7 @@ def evaluate_assertividade(
     classification: TargetClassification | None = None,
     *,
     contribution: JudgeContribution | None = None,
+    scoring: ScoringConfig = DEFAULT_SCORING,
 ) -> DimensionResult:
     anchor = project_anchor(tsm)
     findings = []
@@ -62,6 +64,7 @@ def evaluate_assertividade(
     )
     return assemble(
         Dimension.ASSERTIVIDADE,
+        scoring=scoring,
         applicable=True,
         reasoning=reasoning,
         deterministic_findings=findings,
