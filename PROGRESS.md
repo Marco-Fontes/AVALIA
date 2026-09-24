@@ -1,6 +1,6 @@
 # AVALIA — Registro de Execução (Fase 4 / Implementação)
 
-**Atualizado:** 2026-09-22 · **Iteração atual:** MQ — auditoria de qualidade (emendas normativas feitas; código em andamento, ver §7 e [PLANO-QUALIDADE.md](PLANO-QUALIDADE.md)).
+**Atualizado:** 2026-09-23 · **Iteração atual:** MQ — auditoria de qualidade ✅ concluída (PRs #12–#20; ver §2j e [PLANO-QUALIDADE.md](PLANO-QUALIDADE.md)).
 **Fontes da verdade (imutáveis):** [spec.md](spec.md) v0.5 · [plan.md](plan.md) v1.4 · [tasks.md](tasks.md) v1.4 (emendadas em 2026-09-22 com aprovação do dono — decisões DQ-01..DQ-04; ver §7/MQ).
 
 Este documento é o **log rastreável** do que já foi executado. Não altera as fontes da verdade —
@@ -29,8 +29,8 @@ leitura de texto — pula `.git`/caches/`node_modules`/binários/grandes), roda 
 Ver [README.md](README.md). Arquivos: `src/avalia/{loader,cli,__main__}.py`, `[project.scripts]`;
 testes `tests/cli/`. Nada executa o alvo (RNF-05) — a guarda contínua cobre os novos módulos.
 
-Validação atual (2026-09-22, antes do MQ): `ruff check .` limpo · `ruff format --check .` limpo · `mypy src` limpo (76
-arquivos) · **262 testes verdes**, 4 pulados (Postgres). *Números do fechamento do M7, mantidos como histórico:* 69
+Validação atual (2026-09-23, fim do MQ): `ruff check .` limpo · `ruff format --check .` limpo · `mypy src` limpo (81
+arquivos) · **375 testes verdes**, 4 pulados (Postgres, rodam no CI) · cobertura 92,3% (piso 91%). Antes do MQ: 262 testes. *Números do fechamento do M7, mantidos como histórico:* 69
 arquivos · **191 testes verdes** (`py -m pytest -q`; +4 Postgres gated por `AVALIA_PG_DSN`). Gate
 leve `-m fast`: 169 verdes, smoke de meta-avaliação **deselecionado** (fora do CI crítico).
 Suíte de aceite M7 (`tests/acceptance/`): 26 casos (CA/CB) + reprodutibilidade em dois regimes
@@ -428,13 +428,55 @@ crítico / 0 importante / 0 recomendação** (com T3.2, o `cache` deixa de ser s
 (+36 nesta iteração; +4 Postgres gated). Suíte de aceite (CA-01..15/CB-01..10) **intacta** — nenhum
 número de cálculo ou faixa mudou.
 
+## 2j. MQ — Auditoria de qualidade (PRs #12–#20; [PLANO-QUALIDADE.md](PLANO-QUALIDADE.md))
+
+A auditoria de 2026-09-22 achou defeitos que o dogfood (0 achados) não enxergava no próprio
+AVALIA — o principal: **um 429 real do provedor abortava a avaliação** (RNF-12/CB-10). Decisões do
+dono DQ-01..DQ-04 emendaram spec v0.5 / plan v1.4 / tasks v1.4 (PR-D, #12). Nenhuma decisão
+EC-01..EC-10 mudou; nada executa o alvo; nada implementa a Fase 2.
+
+| PR | Entrega | Arquivos principais | Requisitos | Testes |
+|---|---|---|---|---|
+| #12 PR-D | Emendas normativas + plano de trabalho | `spec.md`, `plan.md`, `tasks.md`, `PLANO-QUALIDADE.md` | DQ-01..04 | — |
+| #13 PR-1 | Exceções reais do provedor traduzidas no gateway (transitório/indisponível/malformado) + backoff exponencial com teto | `model_gateway/{errors,structured,roles}.py`, `judge/framework.py` | RNF-12, CB-10 | +33 |
+| #14 PR-2 | Detector de harness único por partes do caminho (eram 3 heurísticas) | `extract/harness.py` | RF-DIM-Q1, CA-06 | +20 |
+| #16 PR-4 | `ScoringConfig` (nota base/penalidades como config) + teto derivado + guarda de AST | `config/evaluator_config.py`, `evaluators/*` | RNF-06, DQ-03 | +10 |
+| #17 PR-3 | Orçamento sobre consumo REAL: `BudgetMeter` + `RunRegistry` por execução; `budget_usage` no laudo; flags de teto | `graph/budget.py`, `graph/nodes.py`, `domain/contracts.py` | RF-12, CA-13, DQ-01 | +12 |
+| #18 PR-5 | Juiz: urgência só sugestão/importante; evidência = símbolo validado contra o TSM; limitação da Robustez | `judge/{framework,contributors}.py`, `evaluators/robustez.py` | RF-19, RF-29, RNF-07/08, DQ-02/04 | +12 |
+| #19 PR-6 | CLI com códigos de saída 0/1/2/3 + `--debug`; gate de cobertura (`fail_under=91`) | `cli.py`, `pyproject.toml`, CI | RNF-11; T-1009 | +7 |
+| #20 PR-7 | Loader com poda; segredos mascarados no TSM; `thread_id` por avaliação; tipagem da CLI; versão 0.11.0 | `loader.py`, `extract/secrets.py`, `hitl/runner.py` | RNF-05, RNF-01 | +17 |
+| #15 (avulso) | `created_at` estritamente crescente — teste intermitente de persistência (relógio de 15,6 ms no Windows) | `persistence/repository.py` | RF-28/29 | +1 |
+
+**Decisões/atritos desta iteração:**
+- **Base comum `StructuredInvoker`** para gateway real e dublês de teste (em vez de helper no
+  `conftest.py`): os testes exercitam o mesmo caminho de invocação da produção.
+- **Medidor e cache POR EXECUÇÃO** (`RunRegistry`, chave `thread_id`), fora do checkpoint; o
+  `BudgetState` guarda só o registro auditável. Âncora de tempo em horário real (vale entre processos).
+- **`static_ceiling` explícito menor que a nota máxima é rejeitado** (o laudo exibiria teto falso);
+  por omissão deriva de `ScoringConfig`.
+- **Não feito, de propósito:** `language_for_path` via `Path.suffix` (custo desprezível; risco em `.env`).
+- **Pendência de UX (não é defeito):** `--cost-ceiling` no CLI só tem efeito com `model_prices`, que
+  hoje só é configurável por código (`EvaluatorConfig`). Um arquivo de preços lido pelo CLI é o
+  próximo passo natural.
+- **Proposta para o M9 (curadoria humana, D-03):** incluir no `benchmark/dataset.yaml` um caso
+  "retry declarado mas ineficaz" — alvo sintético estático cujo retry não captura as exceções do
+  SDK — rotulado com Robustez `adequado_com_ressalvas`, para medir se o laudo declara a limitação
+  (DQ-04) em vez de dar `pronto`.
+
+**Validação ao fim do MQ:** `ruff`/`ruff format --check`/`mypy --strict` (81 arquivos) limpos ·
+**375 testes verdes** (+113 desde a auditoria; 4 Postgres pulados localmente, rodam no CI; o teste
+intermitente de persistência é corrigido pelo #15, avulso) ·
+cobertura **92,3%** (piso 91%) · `tests/guards` 33 verdes · suíte de aceite CA-01..15/CB-01..10
+intacta · dogfood `avalia .`: **aprovado 89/100**, notas das 7 dimensões idênticas às de antes
+do MQ, agora com a limitação da Robustez e o consumo de orçamento declarados.
+
 ---
 
 ## 7. Estado atual + Roadmap das próximas etapas (M8+)
 
 **Onde estamos.** Fase 1 (avaliação estática) implementada de ponta a ponta (M0–M7), suíte de
 aceite fechada (CA-01..15/CB-01..10), porta de entrada MVP (`avalia <alvo>`) e melhorias
-pós-dogfooding (Frentes 1–4, §2i), **M8** (histórico/comparação no CLI), **M10** (extrator TS/JS
+pós-dogfooding (Frentes 1–4, §2i), **MQ** (auditoria de qualidade, §2j), **M8** (histórico/comparação no CLI), **M10** (extrator TS/JS
 via tree-sitter) e **M11** (serde durável + docs de produção). 262 testes verdes; CI mecânico no
 PR. O **núcleo do produto está pronto**; resta (a) ~~lacunas de uso~~ (M8 ✅), ~~cobertura de
 linguagem~~ (M10 ✅), ~~endurecimento de produção~~ (M11 ✅), (b) **validar empiricamente que
@@ -507,7 +549,7 @@ módulo estar na lista); `importlib` foi **evitado** (o guard RNF-05 o proíbe e
 imports diretos. Teste `tests/graph/test_m11_serde.py` (5) prova roundtrip por tipo **sob modo
 estrito** (0 avisos). README ganhou a seção **Produção**. 262 testes verdes.
 
-### MQ — Auditoria de qualidade *(🔄 em andamento — plano em [PLANO-QUALIDADE.md](PLANO-QUALIDADE.md))*
+### MQ — Auditoria de qualidade ✅ *(concluído — ver §2j e [PLANO-QUALIDADE.md](PLANO-QUALIDADE.md))*
 A auditoria de 2026-09-22 (gates verdes; leitura do código e testes pontuais) achou defeitos que **a análise
 estática não enxerga no próprio AVALIA**: o dogfood dá 0 achados, mas (1) o juiz só tratava as exceções
 internas — um 429 real do provedor **abortava a avaliação** (viola RNF-12/CB-10); (2) `backoff_seconds` nunca
