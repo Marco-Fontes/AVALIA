@@ -35,6 +35,7 @@ Acesso a modelo **só via `ModelGateway`** (default Opus→Sonnet, configurável
 - Lint/format: `py -m ruff check .` · `py -m ruff format .`
 - Tipos: `py -m mypy src`
 - Guarda RNF-05: `py -m pytest tests/guards -q`
+- Cobertura (gate do CI, piso em `pyproject.toml`): `py -m pytest -q --cov`
 
 ## Ambiente
 Windows. Python via launcher `py` (3.12). Repo fora de versionar `.claude/settings.local.json`.

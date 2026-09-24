@@ -108,7 +108,7 @@ testes-guarda), CI completo com Postgres real, rastreabilidade em todo módulo, 
 - [x] **PR-4** — pontuação como config (`ScoringConfig`, inclusive o piso 50 e a penalidade de contradição da Trajetória; teto derivado; guarda de AST; +10 testes)
 - [x] **PR-3** — orçamento com consumo real (`BudgetMeter`/`RunRegistry`; `budget_usage` no laudo; flags de teto na CLI; +12 testes)
 - [x] **PR-5** — achados do juiz + limitação da Robustez (`JudgeVerdict.urgency`/`evidence_symbol`; `symbol_index`; nó de aresta com símbolo próprio; +12 testes)
-- [ ] **PR-6** — CLI + cobertura
+- [x] **PR-6** — CLI + cobertura (códigos 0/1/2/3 + `--debug`; `pytest-cov`, piso 91% — medido 92,3%; CLAUDE.md com o comando; +7 testes)
 - [ ] **PR-7** — melhorias finas
 - [ ] **Fechamento** — PROGRESS §2j (tabela de entregas, como a §2i), dogfood re-rodado e registrado, README (flags de teto, `--debug`, códigos de saída, garantias de resiliência, `model_prices`, mascaramento de segredos, cobertura, nota de migração), CLAUDE.md (comando de cobertura), proposta de caso "retry declarado mas ineficaz" em `benchmark/dataset.yaml` (curadoria humana, D-03).
 
