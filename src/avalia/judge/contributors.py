@@ -47,20 +47,51 @@ DIMENSION_JUDGE_SPEC: dict[Dimension, JudgeSpec] = {
 }
 
 
-def _target_content(tsm: TargetStaticModel) -> dict[str, str]:
+def symbol_index(tsm: TargetStaticModel) -> dict[str, EvidenceRef]:
+    """Símbolos do TSM que um achado do juiz pode citar → evidência de cada um (T-312, RF-29).
+
+    Agentes, ferramentas, prompts e estado compartilhado usam a própria evidência; nós citados só
+    em arestas usam a evidência da aresta. O primeiro fato de cada nome vence (determinístico)."""
+    index: dict[str, EvidenceRef] = {}
+    named: list[tuple[str, EvidenceRef]] = [
+        *((a.name, a.evidence) for a in tsm.agents),
+        *((t.name, t.evidence) for t in tsm.tools),
+        *((p.name, p.evidence) for p in tsm.prompts),
+        *((s.name, s.evidence) for s in tsm.shared_state),
+    ]
+    for name, evidence in named:
+        index.setdefault(name, evidence)
+    for edge in tsm.edges:
+        for node in (edge.source, edge.target):
+            # mesmo arquivo/linha da aresta, mas o SÍMBOLO é o nó (identidade RF-29 = o nó)
+            if node not in index:
+                index[node] = edge.evidence.model_copy(
+                    update={"symbol": node, "component_kind": "graph_node"}
+                )
+    return index
+
+
+def _target_content(tsm: TargetStaticModel, symbols: list[str]) -> dict[str, str]:
     content: dict[str, str] = {f"prompt:{p.name}": p.text for p in tsm.prompts}
     for t in tsm.tools:
         if t.description:
             content[f"tool:{t.name}"] = t.description
-    return content or {"_": "(sem prompts ou descrições de ferramentas)"}
+    if not content:
+        content["_"] = "(sem prompts ou descrições de ferramentas)"
+    # T-312: símbolos citáveis como evidência — DENTRO dos dados não confiáveis (R8): são nomes
+    # extraídos do alvo, não instruções.
+    content["simbolos_do_tsm"] = "\n".join(symbols) if symbols else "(nenhum)"
+    return content
+
+
+def _project_anchor(tsm: TargetStaticModel) -> EvidenceRef:
+    fp = tsm.files[0] if tsm.files else "<projeto>"
+    return EvidenceRef(file_path=fp, symbol="<projeto>", component_kind="project")
 
 
 def _evidence(tsm: TargetStaticModel) -> list[EvidenceRef]:
     refs = [p.evidence for p in tsm.prompts] + [t.evidence for t in tsm.tools]
-    if refs:
-        return refs[:5]
-    fp = tsm.files[0] if tsm.files else "<projeto>"
-    return [EvidenceRef(file_path=fp, symbol="<projeto>", component_kind="project")]
+    return refs[:5] if refs else [_project_anchor(tsm)]
 
 
 _RECONCILE_INSTRUCTION = (
@@ -81,13 +112,16 @@ def _assess(
 ) -> JudgeContribution:
     spec = DIMENSION_JUDGE_SPEC[dimension]
     judge = Judge(gateway, node_type=f"juiz_{dimension.value}", cache=cache, meter=meter)
+    symbols = symbol_index(tsm)
     return judge.assess(
         dimension=dimension,
         rubric=get_rubric(spec.rubric_id),
         instruction=instruction,
         angles=spec.angles,
-        target_content=_target_content(tsm),
+        target_content=_target_content(tsm, sorted(symbols)),
         evidence=_evidence(tsm),
+        known_symbols=symbols,
+        anchor=_project_anchor(tsm),
     )
 
 

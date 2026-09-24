@@ -19,6 +19,16 @@ from avalia.judge.base import JudgeContribution
 RUBRIC = "robustez/v1"
 
 
+# v1.4 (T-313, DQ-04; RF-DIM-R2, RNF-08): a análise estática vê a PRESENÇA de retry/fallback,
+# não a eficácia — ex.: um retry que não captura as exceções reais do provedor passa neste check
+# (foi exatamente o caso do próprio AVALIA antes da v1.4). Eficácia só é verificável na Fase 2.
+_STATIC_LIMIT = (
+    "Fase 1 verifica a PRESENÇA de retry, fallback de modelo, tratamento de erro e validação — "
+    "não a EFICÁCIA sob falha real (ex.: se o retry captura as exceções que o provedor de fato "
+    "lança). Eficácia só é verificável com execução controlada (Fase 2)."
+)
+
+
 def evaluate_robustez(
     tsm: TargetStaticModel,
     classification: TargetClassification | None = None,
@@ -116,4 +126,5 @@ def evaluate_robustez(
         check_outcomes=outcomes,
         base_confidence=Confidence.ALTO,
         contribution=contribution,
+        static_limitations=_STATIC_LIMIT,
     )
