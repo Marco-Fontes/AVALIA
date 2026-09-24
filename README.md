@@ -49,6 +49,11 @@ Gera `avalia-out/laudo.md` (humano) e `avalia-out/laudo.json` (máquina) e impri
 | `--format {both,md,json}` | Formato(s) do laudo gravado(s) (default: `both`). |
 | `--llm` | Liga os juízes-LLM via `ModelGateway` (default: **determinístico**, sem custo/credencial). |
 | `--max-files N` | Teto de arquivos analisados a fundo; acima dele o resto é amostrado (laudo parcial honesto). |
+| `--token-ceiling N` | Teto de tokens (entrada+saída) das chamadas de juízo; atingido → dimensões restantes no determinístico e laudo parcial. |
+| `--cost-ceiling X` | Teto de custo em moeda. Só é calculável com `model_prices` na configuração (ver *Produção*); sem preço, o laudo declara o custo como não calculável e o teto de tokens segue valendo. |
+| `--time-ceiling S` | Teto de tempo da avaliação, em segundos. |
+| `--history-dir DIR` | Persiste o laudo e compara com a versão anterior do mesmo `--target-id` (ver *Produção*). |
+| `--debug` | Em caso de erro, mostra o rastreamento completo. |
 
 **Modo determinístico (padrão):** roda só as checagens estáticas (estrutura, controles de custo,
 loops, retry/fallback, etc.) — reproduzível e sem chamadas de modelo. **`--llm`** acrescenta os
@@ -57,12 +62,33 @@ julgamentos semânticos (clareza de prompt, anti-injeção, grounding…) via `M
 etc.); requer `ANTHROPIC_API_KEY` (ou `OPENROUTER_API_KEY`). Substituições de modelo são sempre
 declaradas no laudo (RNF-12).
 
+O laudo registra o **consumo de orçamento** (tokens, custo quando há preço, tempo, tetos e
+dimensões degradadas) no JSON (`metadata.budget_usage`), no Markdown e no resumo do CLI.
+
+### Códigos de saída
+
+| Código | Significado |
+|---|---|
+| `0` | Laudo gerado (inclusive laudo parcial). |
+| `1` | Erro interno inesperado do AVALIA — rode de novo com `--debug`. |
+| `2` | Entrada inválida: caminho inexistente ou sem permissão, configuração inválida, alvo sem código-fonte, saída não gravável. |
+| `3` | Infraestrutura: repositório de histórico Postgres (`AVALIA_PG_DSN`) inacessível. |
+
 ## Garantias
 
 - **Nunca executa o alvo** (RNF-05/S-04): só leitura estática (`ast` para Python; **tree-sitter**
   para TS/JS — estrutural, sem inferência de tipos, confiança reduzida declarada no laudo). Há hook
   + teste-guarda contínuos que falham o build se algum caminho introduzir execução/import do alvo.
 - **Acesso a modelo só via `ModelGateway`** (RNF-06/RNF-12), nunca slugs hardcoded.
+- **Resiliência real a falhas do provedor** (RNF-12/CB-10): limite de taxa, timeout e 5xx →
+  nova tentativa no mesmo modelo com espera exponencial; modelo indisponível ou sem credencial →
+  modelo de fallback, declarado no laudo com confiança reduzida; ambos esgotados → laudo parcial.
+  A avaliação não aborta por falha pontual.
+- **Sem segredos do alvo no modelo interno** (TSM): valores de chaves como `api_key`,
+  `*_PASSWORD`, `token` e `dsn` são mascarados na extração — portanto não chegam ao checkpoint
+  nem ao laudo (a chave continua visível).
+- **Pontuação configurável** (RNF-06): nota base e penalidades vivem em `ScoringConfig`
+  (`EvaluatorConfig.scoring`); os defaults reproduzem exatamente as notas anteriores.
 - **Reproduzibilidade:** checagens determinísticas são bit-idênticas entre execuções; o juízo-LLM é
   estável por faixa (RNF-01).
 
@@ -78,6 +104,12 @@ durável, configure por ambiente — o código já suporta, só falta a infraest
   (suficiente para o CLI single-shot). Como **serviço**, injete um `PostgresSaver` construído com
   `avalia_checkpoint_serde()` (`avalia.graph.serde`) — o serde registra os tipos `avalia.*`, à prova
   do modo estrito (`LANGGRAPH_STRICT_MSGPACK`) e de versões futuras do LangGraph.
+- **Tetos de custo em moeda (DQ-01).** Informe o preço por modelo na configuração —
+  `EvaluatorConfig(cost_ceiling=0.50, model_prices={"<slug>": ModelPrice(input_per_mtok=3.0,
+  output_per_mtok=15.0)})` — ao chamar o grafo por código. Sem preço para algum modelo usado, o
+  custo é declarado como não calculável (nunca estimado em silêncio).
+- **Um `thread_id` por avaliação.** `run_evaluation` gera um por omissão; informe o mesmo só para
+  **retomar** a mesma avaliação (HITL). Reusar o de uma avaliação concluída é recusado.
 - **Observabilidade (MS-10).** Tracing é **opcional e não-bloqueante**: ligue com
   `AVALIA_TRACING=1` (+ `LANGSMITH_API_KEY`); ausente, o laudo é gerado igual.
 - **API/serviço HTTP:** deliberadamente **adiado** (avaliar antes de construir — sem auth na Fase 1,
@@ -90,7 +122,13 @@ python -m pytest -q             # suíte completa
 python -m pytest -m fast -q     # gate rápido
 python -m ruff check . && python -m ruff format --check .
 python -m mypy src
+python -m pytest -q --cov        # cobertura (o CI falha abaixo do piso em pyproject.toml)
 ```
 
 CI (GitHub Actions) enforça esses gates em todos os PRs, com Postgres em serviço para os testes de
 persistência.
+
+> **Nota de migração (v0.11.0):** a evidência dos achados emitidos pelo juiz-LLM passou a ser o
+> símbolo do alvo citado e validado (antes: os primeiros prompts). Na primeira comparação histórica
+> depois da atualização, esses achados aparecem uma vez como resolvidos/novos. Achados
+> determinísticos não mudam.

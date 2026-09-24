@@ -54,8 +54,9 @@ jobs:
       - name: Mypy (tipos, strict em src)
         run: python -m mypy src
 
-      - name: Pytest (suíte completa, inclui Postgres via serviço)
-        run: python -m pytest -q
+      - name: Pytest (suíte completa, inclui Postgres via serviço) + gate de cobertura
+        # T-1009: falha se a cobertura cair abaixo do piso (`fail_under` no pyproject.toml).
+        run: python -m pytest -q --cov
 
       - name: Guarda RNF-05 (não-execução do alvo)
         run: python -m pytest tests/guards -q

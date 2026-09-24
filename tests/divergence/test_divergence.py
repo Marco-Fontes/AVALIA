@@ -14,6 +14,7 @@ from avalia.domain.contracts import DimensionResult, DivergenceCandidate, JudgeO
 from avalia.domain.enums import Band, Confidence, Dimension
 from avalia.extract.tsm_builder import build_tsm
 from avalia.judge.framework import JudgeVerdict
+from avalia.model_gateway.structured import StructuredInvoker
 
 pytestmark = pytest.mark.fast
 
@@ -57,7 +58,7 @@ def test_agreement_high_confidence_no_candidate():
     assert detect_candidates([dr], EvaluatorConfig()) == []
 
 
-class _FixedGateway:
+class _FixedGateway(StructuredInvoker):
     """Devolve faixas roteirizadas para o re-julgamento de reconciliação."""
 
     def __init__(self, bands):

@@ -13,11 +13,12 @@ Rastreabilidade: RF-12, CB-05; CA-13; plan §3.1.
 
 from __future__ import annotations
 
+from avalia.extract.harness import is_harness_path
+
 _GRAPH_CUES = ("stategraph", "add_edge", "add_conditional_edges", "add_node", "workflow", "graph(")
 _PROMPT_CUES = ("prompt", "system_prompt", "instructions", "persona", "template")
 _TOOL_CUES = ("@tool", "function_tool", "tool_node", "def tool", "tools=")
 _CONFIG_CUES = ("config", "settings", "os.environ", "getenv", "model=")
-_HARNESS_HINTS = ("test_", "_test", "/tests/", "/test/", "conftest")
 
 
 def _signal(path: str, source: str) -> int:
@@ -25,7 +26,7 @@ def _signal(path: str, source: str) -> int:
     low = path.replace("\\", "/").lower()
     body = source.lower()
     # Harness é sinal baixo (importante para Qualidade, mas não é o coração da arquitetura).
-    if any(h in low for h in _HARNESS_HINTS):
+    if is_harness_path(path):  # T-107: detector único (por partes do caminho)
         return 10
     score = 0
     if any(c in body for c in _GRAPH_CUES):

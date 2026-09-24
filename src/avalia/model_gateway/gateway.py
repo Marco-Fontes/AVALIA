@@ -2,8 +2,10 @@
 
 Resolve `(tipo_de_nó, papel: primário|fallback)` → `ModelRef` concreto, isolando o resto do
 código do provedor. Back-ends: Anthropic direto (padrão) e OpenRouter (base_url compatível
-com OpenAI). Centraliza retry/backoff (via config) e a negociação de structured output
-(`with_structured_output`, com degradação declarada → `StructuredOutputUnsupported`).
+com OpenAI). Centraliza a política de retry/backoff (via config), a negociação de structured
+output (`with_structured_output`, com degradação declarada → `StructuredOutputUnsupported`) e,
+em `invoke_structured` (v1.4, plan §3.2c), a TRADUÇÃO das exceções reais do provedor em erros
+tipados — sem ela, um 429 real abortava a avaliação (RNF-12/CB-10).
 
 Default Opus→Sonnet (configurável por env/config — RNF-06): este é o ÚNICO lugar sancionado
 onde slugs-padrão aparecem em código (diretório isento do guard de modelo), porque são
@@ -18,7 +20,6 @@ from __future__ import annotations
 
 import os
 from collections.abc import Callable, Mapping
-from enum import StrEnum
 from typing import Any
 
 from avalia.config.evaluator_config import (
@@ -27,6 +28,9 @@ from avalia.config.evaluator_config import (
     ModelRef,
     RetryPolicy,
 )
+from avalia.model_gateway.errors import ModelUnavailableError
+from avalia.model_gateway.roles import ModelRole as ModelRole  # reexport (API estável)
+from avalia.model_gateway.structured import StructuredInvoker
 
 # Slugs-padrão (Opus→Sonnet). Sobrescrevíveis por env (RNF-06). Único ponto autorizado.
 DEFAULT_PRIMARY_MODEL = "claude-opus-4-8"
@@ -42,15 +46,9 @@ DEFAULT_MAX_TOKENS = 1024
 DEFAULT_TIMEOUT_S = 60.0
 
 
-class ModelRole(StrEnum):
-    """Papel do modelo numa chamada (RNF-12)."""
-
-    PRIMARY = "primary"
-    FALLBACK = "fallback"
-
-
-class StructuredOutputUnsupported(RuntimeError):
-    """Modelo/provedor não suporta `with_structured_output` — o juiz (T-302) deve degradar."""
+class StructuredOutputUnsupported(ModelUnavailableError):
+    """Modelo/provedor não suporta `with_structured_output` → tratado como indisponível: o juiz
+    (T-302) escala para o fallback declarado (RNF-12, passo 3)."""
 
 
 ClientFactory = Callable[[ModelRef], Any]
@@ -107,7 +105,7 @@ def _default_client_factory(ref: ModelRef) -> Any:
     return ChatOpenAI(**params)
 
 
-class ModelGateway:
+class ModelGateway(StructuredInvoker):
     """Porta única de acesso a modelos de julgamento do AVALIA."""
 
     def __init__(
@@ -154,14 +152,31 @@ class ModelGateway:
         """Cliente concreto para o papel. NÃO toca o alvo — só o modelo do AVALIA."""
         return self._client_factory(self.resolve(node_type, role))
 
-    def with_structured_output(self, node_type: str, role: ModelRole, schema: Any) -> Any:
+    def with_structured_output(
+        self, node_type: str, role: ModelRole, schema: Any, *, include_raw: bool = False
+    ) -> Any:
         """Negocia structured output; degrada de forma DECLARADA se incompatível (RNF-12)."""
         client = self.get_client(node_type, role)
         fn = getattr(client, "with_structured_output", None)
         if not callable(fn):
             raise StructuredOutputUnsupported(
                 f"Modelo '{self.resolve(node_type, role).model}' não expõe with_structured_output; "
-                "o wrapper de juiz (T-302) deve degradar para tool-calling/JSON ou tratar como "
-                "saída malformada (passo 2 da RNF-12)."
+                "o juiz (T-302) escala para o fallback declarado (passo 3 da RNF-12)."
             )
-        return fn(schema)
+        return fn(schema, include_raw=True) if include_raw else fn(schema)
+
+    def _model_name(self, node_type: str, role: ModelRole) -> str | None:
+        return self.resolve(node_type, role).model
+
+    def _bind(self, node_type: str, role: ModelRole, schema: Any) -> Any:
+        """Vincula com `include_raw=True` (erro de parse como dado + uso de tokens). Falha ao
+        CONSTRUIR o cliente (ex.: credencial ausente) = modelo indisponível → fallback (CB-10)."""
+        try:
+            return self.with_structured_output(node_type, role, schema, include_raw=True)
+        except ModelUnavailableError:
+            raise
+        except Exception as exc:  # fronteira com o SDK (construção do cliente)
+            raise ModelUnavailableError(
+                f"falha ao preparar o modelo: {type(exc).__name__}: {exc}",
+                origin=type(exc).__name__,
+            ) from exc

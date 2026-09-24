@@ -5,21 +5,20 @@ Princípio (regra 6): o SCORE é ancorado nos achados DETERMINÍSTICOS (fato); a
 juiz acrescenta opiniões/achados semânticos e pode reduzir a confiança, mas não inventa score.
 Achados de "ausência" (ex.: sem timeout) ancoram-se numa evidência representativa do projeto,
 pois a falta é uma propriedade global — a identidade (RF-29) fica estável por (dim, tipo, arquivo).
+
+v1.4 (DQ-03, RNF-06): nota base e penalidades vêm de `ScoringConfig` — nunca constantes aqui
+(guarda `tests/guards/test_no_scoring_constants.py`).
 """
 
 from __future__ import annotations
 
+from avalia.config.evaluator_config import DEFAULT_SCORING, ScoringConfig
 from avalia.domain.contracts import CheckOutcome, DimensionResult, Finding, Recommendation
 from avalia.domain.enums import Confidence, Dimension, Urgency
 from avalia.domain.evidence import EvidenceRef
 from avalia.domain.taxonomy import FindingType
 from avalia.domain.tsm import TargetStaticModel
 from avalia.judge.base import JudgeContribution
-
-_CRITICAL_PENALTY = 22
-_IMPORTANT_PENALTY = 9
-_SUGGESTION_PENALTY = 3
-_BASE_SCORE = 90
 
 
 def presence(tsm: TargetStaticModel, kind: str) -> bool:
@@ -68,16 +67,9 @@ def recommend(statement: str, urgency: Urgency, finding: Finding) -> Recommendat
     return Recommendation(statement=statement, urgency=urgency, traces_to=finding.identity)
 
 
-def score_from_findings(findings: list[Finding]) -> int:
-    """Score 0–100 ancorado nos achados determinísticos (fato)."""
-    s = _BASE_SCORE
-    for f in findings:
-        if f.urgency is Urgency.CRITICO:
-            s -= _CRITICAL_PENALTY
-        elif f.urgency is Urgency.IMPORTANTE:
-            s -= _IMPORTANT_PENALTY
-        else:
-            s -= _SUGGESTION_PENALTY
+def score_from_findings(findings: list[Finding], scoring: ScoringConfig = DEFAULT_SCORING) -> int:
+    """Score 0–100 ancorado nos achados determinísticos (fato); parâmetros de `scoring`."""
+    s = scoring.base_score - sum(scoring.penalty_for(f.urgency) for f in findings)
     return max(0, min(100, s))
 
 
@@ -93,6 +85,7 @@ def assemble(
     contribution: JudgeContribution | None = None,
     static_limitations: str | None = None,
     confidence_reason: str | None = None,
+    scoring: ScoringConfig = DEFAULT_SCORING,
 ) -> DimensionResult:
     """Monta o `DimensionResult` dobrando a contribuição do juiz (regra 6)."""
     findings = list(deterministic_findings)
@@ -105,7 +98,7 @@ def assemble(
         substitutions += contribution.model_substitutions
         confidence = min([base_confidence, contribution.confidence], key=lambda c: c.rank)
 
-    score = score_from_findings(deterministic_findings) if applicable else None
+    score = score_from_findings(deterministic_findings, scoring) if applicable else None
     return DimensionResult(
         dimension=dimension,
         applicable=applicable,

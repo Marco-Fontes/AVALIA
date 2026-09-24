@@ -53,9 +53,9 @@ testes-guarda), CI completo com Postgres real, rastreabilidade em todo módulo, 
   - malformado: `OutputParserException`, `pydantic.ValidationError`, `json.JSONDecodeError`;
   - outra exceção **dentro da chamada ao modelo** → indisponível, com o nome da classe na substituição.
 - **Q1.3** `ModelGateway.invoke_structured(node_type, role, schema, messages) -> StructuredCallResult(parsed, input_tokens, output_tokens)` usando `with_structured_output(schema, include_raw=True)`; `try/except` só em volta da chamada. `GatewayLike` passa a exigir `invoke_structured` e `retry_for`.
-- **Q1.4** `Judge._run_angle` sobre `invoke_structured`, com razão de substituição específica (ex.: `fallback aplicado: primário indisponível (NotFoundError)`).
+- **Q1.4** `Judge._run_angle` sobre `invoke_structured`, com razão de substituição específica (ex.: `fallback de modelo aplicado (primário: indisponível — NotFoundError)` ou `… transitório após 3 tentativa(s) — RateLimitError`).
 - **Q1.5** Backoff: `RetryPolicy.max_backoff_seconds` (default 30); espera `min(backoff_seconds·2ⁿ, max_backoff_seconds)` entre tentativas no mesmo modelo, sem jitter, sem espera após a última; `sleep` injetável.
-- **Q1.6** Testes: novo `tests/judge/test_provider_errors.py` (429 → retry com delays 1s/2s; 404 no primário → fallback declarado e confiança reduzida; 401 nos dois → `partial`; parse inválido → re-solicitação; exceção desconhecida → fallback com o nome); teste de grafo com gateway que sempre lança 429 → laudo parcial. Helper de gateway falso em `tests/conftest.py`; atualizar os mocks em `tests/judge/test_judge_framework.py`, `tests/acceptance/test_acceptance_matrix.py`, `tests/acceptance/test_reproducibility.py`, `tests/divergence/test_divergence.py`, `tests/graph/test_e2e.py`, `tests/graph/test_m3_hitl.py`, `tests/graph/test_m5_budget.py`.
+- **Q1.6** Testes: `tests/model_gateway/test_provider_errors.py` (classificação + `invoke_structured`) e `tests/judge/test_judge_resilience.py` (429 → retry com delays 1s/2s; 404 no primário → fallback declarado e confiança reduzida; 401 nos dois → `partial`; parse inválido → re-solicitação; exceção desconhecida → fallback com o nome); teste de grafo com gateway que sempre lança 429 → laudo parcial. Em vez de um helper em `tests/conftest.py` (`tests/` não é pacote), a lógica de invocação fica na base `StructuredInvoker` (`model_gateway/structured.py`), usada pelo `ModelGateway` real; os mocks só passam a herdar dela, em `tests/judge/test_judge_framework.py`, `tests/acceptance/test_acceptance_matrix.py`, `tests/acceptance/test_reproducibility.py`, `tests/divergence/test_divergence.py`, `tests/graph/test_e2e.py`, `tests/graph/test_m3_hitl.py`, `tests/graph/test_m5_budget.py`.
 - **DoD:** a simulação de 429 da auditoria degrada em vez de propagar; gates verdes; aceite intacto.
 
 ### PR-2 — Detector de harness único (item 4) · T-107 · plan §3.2g
@@ -98,18 +98,19 @@ testes-guarda), CI completo com Postgres real, rastreabilidade em todo módulo, 
 - `cli.py`: tipar `_summary(report: EvaluationReport)` e `_make_repository(...) -> ReportRepository | None`.
 - `aggregate.py`: calcular `_below_floor` uma vez; `registry.language_for_path` via `Path.suffix` (cuidando de `.env` e sufixos compostos).
 - Versão do pacote `0.0.0` → `0.11.0` (`pyproject.toml` e `__init__.py`).
+- **Achado no PR-3 (pré-existente):** reinvocar o MESMO grafo compilado com o MESMO `thread_id` continua o estado do checkpoint, e `dimension_results` (reducer `operator.add`) acumula as duas execuções — nota agregada > 100 (`ValidationError`). A CLI não é afetada (grafo e `MemorySaver` novos por execução), mas um serviço que reuse o grafo seria. Correção proposta: a ingestão zera as listas acumuladas quando começa uma nova submissão (ou o runner gera um `thread_id` por execução), com teste de reuso.
 
 ## 5. Checklist
 
 - [x] **PR-D** — spec v0.5, plan v1.4, tasks v1.4, CLAUDE.md (versões), PROGRESS (cabeçalho, números, §7/MQ, nota do guard), este plano.
-- [ ] **PR-1** — resiliência real do juiz
-- [ ] **PR-2** — harness único
-- [ ] **PR-4** — pontuação como config
-- [ ] **PR-3** — orçamento com consumo real
-- [ ] **PR-5** — achados do juiz + limitação da Robustez
-- [ ] **PR-6** — CLI + cobertura
-- [ ] **PR-7** — melhorias finas
-- [ ] **Fechamento** — PROGRESS §2j (tabela de entregas, como a §2i), dogfood re-rodado e registrado, README (flags de teto, `--debug`, códigos de saída, garantias de resiliência, `model_prices`, mascaramento de segredos, cobertura, nota de migração), CLAUDE.md (comando de cobertura), proposta de caso "retry declarado mas ineficaz" em `benchmark/dataset.yaml` (curadoria humana, D-03).
+- [x] **PR-1** — resiliência real do juiz (`model_gateway/{errors,structured,roles}.py`; +33 testes; 295 verdes)
+- [x] **PR-2** — harness único (`extract/harness.py`; também unificou a 3ª cópia, em `extract/prioritize.py`; +20 testes)
+- [x] **PR-4** — pontuação como config (`ScoringConfig`, inclusive o piso 50 e a penalidade de contradição da Trajetória; teto derivado; guarda de AST; +10 testes)
+- [x] **PR-3** — orçamento com consumo real (`BudgetMeter`/`RunRegistry`; `budget_usage` no laudo; flags de teto na CLI; +12 testes)
+- [x] **PR-5** — achados do juiz + limitação da Robustez (`JudgeVerdict.urgency`/`evidence_symbol`; `symbol_index`; nó de aresta com símbolo próprio; +12 testes)
+- [x] **PR-6** — CLI + cobertura (códigos 0/1/2/3 + `--debug`; `pytest-cov`, piso 91% — medido 92,3%; CLAUDE.md com o comando; +7 testes)
+- [x] **PR-7** — melhorias finas (loader com poda; `extract/secrets.py` no TSM; tipagem da CLI; `_below_floor` 1x; versão 0.11.0; `thread_id` por avaliação + recusa de reuso; +17 testes). **Não feito, de propósito:** `language_for_path` via `Path.suffix` — custo atual desprezível e a troca arriscaria `.env`/sufixos compostos sem ganho.
+- [x] **Fechamento** (PR de docs) — PROGRESS §2j, README (opções de teto, `--debug`, códigos de saída, garantias, `model_prices`, `thread_id`, cobertura, nota de migração); CLAUDE.md já no PR-6; o caso de benchmark ficou como **proposta** na PROGRESS §2j (a pasta `benchmark/` vive no branch do M9, ainda não mergeado). Itens originais: PROGRESS §2j (tabela de entregas, como a §2i), dogfood re-rodado e registrado, README (flags de teto, `--debug`, códigos de saída, garantias de resiliência, `model_prices`, mascaramento de segredos, cobertura, nota de migração), CLAUDE.md (comando de cobertura), proposta de caso "retry declarado mas ineficaz" em `benchmark/dataset.yaml` (curadoria humana, D-03).
 
 Ordem: **PR-1 → PR-2 → PR-4 → PR-3 → PR-5 → PR-6 → PR-7**. PR-3 e PR-5 dependem do PR-1.
 

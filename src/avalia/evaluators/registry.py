@@ -1,6 +1,7 @@
 """Registro Dimension → avaliador (fan-out das 7 dimensões, T-311).
 
-Cada avaliador tem assinatura uniforme `(tsm, classification, *, contribution=None)`.
+Cada avaliador tem assinatura uniforme
+`(tsm, classification, *, contribution=None, scoring=DEFAULT_SCORING)` (DQ-03).
 """
 
 from __future__ import annotations

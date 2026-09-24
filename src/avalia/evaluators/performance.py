@@ -5,6 +5,7 @@ Determinístico (P2): timeout e streaming. Juiz (P1): serialização desnecessá
 
 from __future__ import annotations
 
+from avalia.config.evaluator_config import DEFAULT_SCORING, ScoringConfig
 from avalia.domain.contracts import DimensionResult, TargetClassification
 from avalia.domain.enums import Confidence, Dimension, Urgency
 from avalia.domain.taxonomy import FindingType
@@ -21,6 +22,7 @@ def evaluate_performance(
     classification: TargetClassification | None = None,
     *,
     contribution: JudgeContribution | None = None,
+    scoring: ScoringConfig = DEFAULT_SCORING,
 ) -> DimensionResult:
     anchor = model_anchor(tsm)
     findings = []
@@ -63,6 +65,7 @@ def evaluate_performance(
     )
     return assemble(
         Dimension.PERFORMANCE,
+        scoring=scoring,
         applicable=True,
         reasoning=reasoning,
         deterministic_findings=findings,

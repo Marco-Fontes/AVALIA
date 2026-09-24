@@ -19,9 +19,11 @@ from avalia.domain.enums import Dimension
 from avalia.domain.evidence import EvidenceRef
 from avalia.domain.tsm import TargetStaticModel
 from avalia.extract.base import ExtractionResult
+from avalia.extract.harness import detect_harness
 from avalia.extract.prioritize import rank_files
 from avalia.extract.readability import unreadable_files
 from avalia.extract.registry import get_extractor, language_for_path
+from avalia.extract.secrets import redact_config
 
 _ALL_DIMENSIONS = list(Dimension)
 
@@ -75,40 +77,6 @@ def _is_ignorable_path(path: str) -> bool:
     """Documentação/dados não-analisáveis — fora da análise e SEM disparar parcial."""
     base = _basename(path)
     return base in _DOC_BASENAMES or base.endswith(_DOC_EXTENSIONS)
-
-
-def _is_harness_path(path: str) -> bool:
-    p = path.replace("\\", "/").lower()
-    base = p.rsplit("/", 1)[-1]
-    return base.startswith("test_") or base.endswith("_test.py") or "/tests/" in p or "/test/" in p
-
-
-# T4.5 — harness reconhecido por CONFIG de teste / orientação de uso, não só por `test_*`.
-_HARNESS_FILES = frozenset({"conftest.py", "tox.ini", "pytest.ini", "noxfile.py"})
-
-
-def _file_signals_harness(path: str, source: str) -> bool:
-    """Sinais de harness em arquivos de config/CI (sinergia com a Frente 1: já parseados)."""
-    base = _basename(path)
-    p = path.replace("\\", "/").lower()
-    if base in _HARNESS_FILES:
-        return True
-    if base == "pyproject.toml" and ("[tool.pytest" in source or "[tool.tox" in source):
-        return True
-    if base == "setup.cfg" and ("[tool:pytest]" in source or "[pytest]" in source):
-        return True
-    if ".github/workflows/" in p and p.endswith((".yml", ".yaml")):
-        return "pytest" in source.lower() or "unittest" in source.lower()
-    return False
-
-
-def _detect_harness(files: dict[str, str]) -> bool:
-    """RF-DIM-Q1: existe harness de teste/avaliação? Por caminho (`test_*`/`tests/`) OU por
-    config de teste (`pyproject [tool.pytest]`, `tox.ini`, `conftest.py`, workflows com pytest)."""
-    return any(
-        _is_harness_path(path) or _file_signals_harness(path, source)
-        for path, source in files.items()
-    )
 
 
 def build_tsm(files: dict[str, str], config: EvaluatorConfig | None = None) -> TargetStaticModel:
@@ -205,10 +173,10 @@ def build_tsm(files: dict[str, str], config: EvaluatorConfig | None = None) -> T
         edges=merged.edges,
         loops=merged.loops,
         model_assignments=merged.model_assignments,
-        configs=merged.configs,
+        configs=[redact_config(c) for c in merged.configs],  # PR-7: sem segredos no TSM
         error_handling=merged.error_handling,
         shared_state=merged.shared_state,
-        has_harness=_detect_harness(files),
+        has_harness=detect_harness(files),  # T-107: detector único
         coverage=coverage,
         readability=readability,
     )

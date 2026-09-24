@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "avalia"
-version = "0.0.0"
+version = "0.11.0"
 description = "AVALIA — avaliador ESTÁTICO de sistemas multiagentes de IA (Fase 1)"
 requires-python = ">=3.12"
 # Stack fechada (plan.md v1.3 / CLAUDE.md): LangGraph + LangChain + Pydantic v2 +
@@ -27,7 +27,7 @@ dependencies = [
 [project.optional-dependencies]
 # LangSmith é opcional — ausência NÃO pode quebrar o import nem a geração do laudo (MS-10).
 observability = ["langsmith>=0.1"]
-dev = ["pytest>=8", "ruff>=0.6", "mypy>=1.11"]
+dev = ["pytest>=8", "pytest-cov>=5", "ruff>=0.6", "mypy>=1.11"]
 
 [project.scripts]
 # Porta de entrada de uso (MVP): `avalia <caminho-do-alvo>`.
@@ -46,6 +46,19 @@ extend-exclude = ["tests/fixtures"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B"]
+
+[tool.coverage.run]
+# T-1009 (v1.4): gate de cobertura. Só mede com `--cov` (a suíte padrão segue rápida).
+source = ["avalia"]
+branch = true
+
+[tool.coverage.report]
+# Piso medido em 2026-09-23: 92% (local, sem os testes de Postgres). 1 ponto de folga para
+# ramificações que variam entre SO/ambiente; no CI (com Postgres) a cobertura fica acima.
+fail_under = 91
+show_missing = true
+skip_covered = true
+exclude_also = ['if __name__ == "__main__":']
 
 [tool.mypy]
 python_version = "3.12"
