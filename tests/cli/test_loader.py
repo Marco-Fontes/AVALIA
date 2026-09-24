@@ -9,6 +9,7 @@ from pathlib import Path
 
 import pytest
 
+import avalia.loader as loader_module
 from avalia.loader import read_target_directory
 
 pytestmark = pytest.mark.fast
@@ -74,3 +75,25 @@ def test_top_level_fixtures_dir_is_not_skipped(tmp_path: Path):
 def test_missing_path_raises(tmp_path: Path):
     with pytest.raises(FileNotFoundError):
         read_target_directory(tmp_path / "does-not-exist")
+
+
+def test_noise_dirs_are_pruned_not_traversed(tmp_path: Path, monkeypatch):
+    # PR-7: antes, rglob("*") descia em node_modules/.venv e só depois descartava.
+    (tmp_path / "app.py").write_text("x = 1\n", encoding="utf-8")
+    deep = tmp_path / "node_modules" / "pkg" / "lib"
+    deep.mkdir(parents=True)
+    (deep / "index.js").write_text("module.exports = 1\n", encoding="utf-8")
+    (tmp_path / "tests" / "fixtures" / "alvo").mkdir(parents=True)
+
+    visited: list[str] = []
+    real_walk = loader_module.os.walk
+
+    def spy(top, *args, **kwargs):
+        for dirpath, dirnames, filenames in real_walk(top, *args, **kwargs):
+            visited.append(Path(dirpath).relative_to(tmp_path).as_posix())
+            yield dirpath, dirnames, filenames
+
+    monkeypatch.setattr(loader_module.os, "walk", spy)
+    files = read_target_directory(tmp_path)
+    assert list(files) == ["app.py"]
+    assert not any(v.startswith(("node_modules", "tests/fixtures")) for v in visited)

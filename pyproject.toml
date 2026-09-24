@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "avalia"
-version = "0.0.0"
+version = "0.11.0"
 description = "AVALIA — avaliador ESTÁTICO de sistemas multiagentes de IA (Fase 1)"
 requires-python = ">=3.12"
 # Stack fechada (plan.md v1.3 / CLAUDE.md): LangGraph + LangChain + Pydantic v2 +

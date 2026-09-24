@@ -10,6 +10,7 @@ Rastreabilidade: RF-24, RNF-05; CA-11; plan §3.8a/§3.9.
 from __future__ import annotations
 
 from typing import Any
+from uuid import uuid4
 
 from langgraph.types import Command
 
@@ -22,10 +23,15 @@ def run_evaluation(
     inputs: dict[str, Any],
     *,
     approval_provider: ApprovalProvider,
-    thread_id: str = "avalia",
+    thread_id: str | None = None,
 ) -> dict[str, Any]:
-    """Executa a avaliação ponta-a-ponta, resolvendo pausas de HITL via o provider."""
-    config = {"configurable": {"thread_id": thread_id}}
+    """Executa a avaliação ponta-a-ponta, resolvendo pausas de HITL via o provider.
+
+    v1.4 (PR-7): `thread_id` identifica UMA avaliação no checkpointer. Por omissão é gerado um
+    novo a cada chamada — reusar o de uma avaliação concluída misturaria os estados (o nó de
+    ingestão recusa). Informe um `thread_id` só para retomar a MESMA avaliação.
+    """
+    config = {"configurable": {"thread_id": thread_id or uuid4().hex}}
     result: dict[str, Any] = graph.invoke(inputs, config=config)
 
     while result.get("__interrupt__"):

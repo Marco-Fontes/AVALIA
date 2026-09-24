@@ -55,6 +55,13 @@ def make_ingest_node(
     """N0: ingestão/validação; abre os recursos da execução (medidor + cache) — T-805."""
 
     def node(state: AvaliaState, config: RunnableConfig) -> dict[str, Any]:
+        if state.get("report") is not None:
+            # Reuso do thread_id de uma avaliação CONCLUÍDA: o checkpointer continuaria o estado
+            # anterior e os reducers somariam as duas execuções (nota > 100). Falha explícita.
+            raise ValueError(
+                f"thread_id '{run_key(config)}' já pertence a uma avaliação concluída; use um "
+                "thread_id por avaliação (run_evaluation gera um por omissão)."
+            )
         if registry is not None:
             registry.start(run_key(config), state["submission"].config)
         out = ingest_validate(state["submission"])
