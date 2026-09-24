@@ -15,19 +15,25 @@ import os
 import sys
 import traceback
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from pydantic import ValidationError
 
 from avalia.config.evaluator_config import EvaluatorConfig
+from avalia.config.model_prices import ENV_MODEL_PRICES, ModelPricesError, load_model_prices
 from avalia.domain.contracts import EvaluationReport
-from avalia.domain.enums import RunStatus, Urgency
+from avalia.domain.enums import Dimension, RunStatus, Urgency
 from avalia.domain.submission import Submission, TargetMetadata
 from avalia.graph.build_graph import build_avalia_graph
 from avalia.hitl.approval import CLIApprovalProvider, StaticApprovalProvider
 from avalia.hitl.runner import run_evaluation
 from avalia.loader import read_target_directory
+from avalia.model_gateway.roles import ModelRole
 from avalia.persistence.repository import ReportRepository
 from avalia.report.render import describe_budget_usage, render_json, render_markdown
+
+if TYPE_CHECKING:
+    from avalia.model_gateway.gateway import ModelGateway
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -87,6 +93,13 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Teto de tempo da avaliação, em segundos; atingido → laudo parcial.",
     )
     p.add_argument(
+        "--prices",
+        default=None,
+        help="Arquivo de preços por modelo (YAML/JSON/TOML: <slug>: {input_per_mtok, "
+        "output_per_mtok}) — torna o custo em moeda calculável e o --cost-ceiling efetivo. "
+        f"Default: variável {ENV_MODEL_PRICES}, se definida.",
+    )
+    p.add_argument(
         "--debug",
         action="store_true",
         help="Em caso de erro, mostra o rastreamento completo (traceback).",
@@ -101,13 +114,44 @@ def _build_parser() -> argparse.ArgumentParser:
     return p
 
 
+def _prices_path(args: argparse.Namespace) -> str | None:
+    """Arquivo de preços: `--prices` tem precedência sobre `AVALIA_MODEL_PRICES` (RNF-11)."""
+    return getattr(args, "prices", None) or os.environ.get(ENV_MODEL_PRICES) or None
+
+
 def _make_config(args: argparse.Namespace) -> EvaluatorConfig:
+    prices_path = _prices_path(args)
     return EvaluatorConfig(
         max_analyzed_files=args.max_files,
         token_ceiling=args.token_ceiling,
         cost_ceiling=args.cost_ceiling,
         time_ceiling_s=args.time_ceiling,
+        model_prices=load_model_prices(prices_path) if prices_path else {},
     )
+
+
+def _price_warnings(config: EvaluatorConfig, gateway: ModelGateway | None) -> list[str]:
+    """Avisos de preço (DQ-01): teto em moeda sem preço, ou modelo do juiz sem preço."""
+    warnings: list[str] = []
+    if config.cost_ceiling is not None and not config.model_prices:
+        warnings.append(
+            "--cost-ceiling sem tabela de preços (--prices / AVALIA_MODEL_PRICES): o custo em "
+            "moeda não é calculável e esse teto não terá efeito; o de tokens segue valendo."
+        )
+    if gateway is None or not config.model_prices:
+        return warnings
+    used = {
+        gateway.resolve(f"juiz_{d.value}", role).model
+        for d in Dimension
+        for role in (ModelRole.PRIMARY, ModelRole.FALLBACK)
+    }
+    missing = sorted(used - set(config.model_prices))
+    if missing:
+        warnings.append(
+            f"sem preço para o(s) modelo(s) {', '.join(missing)}: se usados, o custo em moeda "
+            "será declarado como não calculável no laudo."
+        )
+    return warnings
 
 
 def _make_repository(args: argparse.Namespace) -> ReportRepository | None:
@@ -213,6 +257,8 @@ def _is_database_error(exc: BaseException) -> bool:
 def _make_config_or_fail(args: argparse.Namespace) -> EvaluatorConfig:
     try:
         return _make_config(args)
+    except ModelPricesError as exc:
+        raise _CliError(str(exc), EXIT_INPUT) from exc
     except ValidationError as exc:
         details = "; ".join(
             f"{'.'.join(str(p) for p in err['loc']) or 'config'}: {err['msg']}"
@@ -286,6 +332,8 @@ def _run(args: argparse.Namespace) -> int:
             )
         gateway = ModelGateway(config)
         mode = "juiz-LLM (ModelGateway)"
+    for warning in _price_warnings(config, gateway):
+        print(f"Aviso: {warning}", file=sys.stderr)
 
     repository = _make_repository_or_fail(args)
     graph = build_avalia_graph(gateway=gateway, repository=repository)

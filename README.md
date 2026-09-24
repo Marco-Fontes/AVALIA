@@ -50,7 +50,8 @@ Gera `avalia-out/laudo.md` (humano) e `avalia-out/laudo.json` (máquina) e impri
 | `--llm` | Liga os juízes-LLM via `ModelGateway` (default: **determinístico**, sem custo/credencial). |
 | `--max-files N` | Teto de arquivos analisados a fundo; acima dele o resto é amostrado (laudo parcial honesto). |
 | `--token-ceiling N` | Teto de tokens (entrada+saída) das chamadas de juízo; atingido → dimensões restantes no determinístico e laudo parcial. |
-| `--cost-ceiling X` | Teto de custo em moeda. Só é calculável com `model_prices` na configuração (ver *Produção*); sem preço, o laudo declara o custo como não calculável e o teto de tokens segue valendo. |
+| `--cost-ceiling X` | Teto de custo em moeda. Só é calculável com a tabela de preços (`--prices`); sem ela, o CLI avisa, o laudo declara o custo como não calculável e o teto de tokens segue valendo. |
+| `--prices ARQ` | Arquivo de preços por modelo (YAML/JSON/TOML). Default: variável `AVALIA_MODEL_PRICES`. Ver *Produção*. |
 | `--time-ceiling S` | Teto de tempo da avaliação, em segundos. |
 | `--history-dir DIR` | Persiste o laudo e compara com a versão anterior do mesmo `--target-id` (ver *Produção*). |
 | `--debug` | Em caso de erro, mostra o rastreamento completo. |
@@ -104,10 +105,23 @@ durável, configure por ambiente — o código já suporta, só falta a infraest
   (suficiente para o CLI single-shot). Como **serviço**, injete um `PostgresSaver` construído com
   `avalia_checkpoint_serde()` (`avalia.graph.serde`) — o serde registra os tipos `avalia.*`, à prova
   do modo estrito (`LANGGRAPH_STRICT_MSGPACK`) e de versões futuras do LangGraph.
-- **Tetos de custo em moeda (DQ-01).** Informe o preço por modelo na configuração —
-  `EvaluatorConfig(cost_ceiling=0.50, model_prices={"<slug>": ModelPrice(input_per_mtok=3.0,
-  output_per_mtok=15.0)})` — ao chamar o grafo por código. Sem preço para algum modelo usado, o
-  custo é declarado como não calculável (nunca estimado em silêncio).
+- **Tetos de custo em moeda (DQ-01).** O AVALIA não embute preços (mudam com o tempo e por
+  contrato). Mantenha um arquivo seu, com o preço por **milhão de tokens** na moeda do teto:
+
+  ```yaml
+  # precos.yaml — use os slugs dos modelos que você configurou para os juízes
+  <slug-do-modelo-primario>:
+    input_per_mtok: 3.0
+    output_per_mtok: 15.0
+  <slug-do-modelo-de-fallback>:
+    input_per_mtok: 0.8
+    output_per_mtok: 4.0
+  ```
+
+  Use com `avalia <alvo> --llm --cost-ceiling 0.50 --prices precos.yaml` (ou defina
+  `AVALIA_MODEL_PRICES=precos.yaml`). O CLI avisa se algum modelo dos juízes não tiver preço; nesse
+  caso o custo é declarado como não calculável no laudo (nunca estimado em silêncio). Por código:
+  `EvaluatorConfig(model_prices=load_model_prices("precos.yaml"))`.
 - **Um `thread_id` por avaliação.** `run_evaluation` gera um por omissão; informe o mesmo só para
   **retomar** a mesma avaliação (HITL). Reusar o de uma avaliação concluída é recusado.
 - **Observabilidade (MS-10).** Tracing é **opcional e não-bloqueante**: ligue com
