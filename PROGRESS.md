@@ -455,9 +455,9 @@ EC-01..EC-10 mudou; nada executa o alvo; nada implementa a Fase 2.
 - **`static_ceiling` explícito menor que a nota máxima é rejeitado** (o laudo exibiria teto falso);
   por omissão deriva de `ScoringConfig`.
 - **Não feito, de propósito:** `language_for_path` via `Path.suffix` (custo desprezível; risco em `.env`).
-- **Pendência de UX (não é defeito):** `--cost-ceiling` no CLI só tem efeito com `model_prices`, que
-  hoje só é configurável por código (`EvaluatorConfig`). Um arquivo de preços lido pelo CLI é o
-  próximo passo natural.
+- ~~**Pendência de UX:** `--cost-ceiling` no CLI só tinha efeito com `model_prices`, configurável
+  só por código.~~ **Resolvida em 2026-09-24:** `--prices ARQ` / `AVALIA_MODEL_PRICES` (YAML/JSON/TOML,
+  `config/model_prices.py`), com avisos quando falta preço; nenhum preço embutido no código.
 - **Proposta para o M9 (curadoria humana, D-03):** incluir no `benchmark/dataset.yaml` um caso
   "retry declarado mas ineficaz" — alvo sintético estático cujo retry não captura as exceções do
   SDK — rotulado com Robustez `adequado_com_ressalvas`, para medir se o laudo declara a limitação
