@@ -41,12 +41,13 @@ CATEGORY_META: tuple[tuple[HarnessCategory, int, str], ...] = (
 )
 
 # Pré-condições: o componente do alvo que torna um check aplicável.
-_MODEL, _TOOLS, _LOOPS, _EDGES, _PROMPTS, _ALWAYS = (
+_MODEL, _TOOLS, _LOOPS, _EDGES, _PROMPTS, _CONFIGS, _ALWAYS = (
     "model",
     "tools",
     "loops",
     "edges",
     "prompts",
+    "configs",
     "always",
 )
 
@@ -73,7 +74,8 @@ _FINDING_SPEC: dict[FindingType, tuple[HarnessCategory, str, bool]] = {
     FindingType.LOOP_SEM_TETO: (HarnessCategory.ORQUESTRACAO, _LOOPS, True),
     FindingType.CAMINHO_MORTO: (HarnessCategory.ORQUESTRACAO, _EDGES, True),
     FindingType.PASSOS_REDUNDANTES: (HarnessCategory.ORQUESTRACAO, _EDGES, False),
-    FindingType.FERRAMENTA_SEM_DESCRICAO: (HarnessCategory.FERRAMENTAS, _TOOLS, True),
+    # FERRAMENTA_SEM_DESCRICAO é emitido pelo JUIZ (semântico) → determinístico=False.
+    FindingType.FERRAMENTA_SEM_DESCRICAO: (HarnessCategory.FERRAMENTAS, _TOOLS, False),
     FindingType.ROTEAMENTO_INCOERENTE: (HarnessCategory.ORQUESTRACAO, _EDGES, False),
     FindingType.SEM_RETRY: (HarnessCategory.RESILIENCIA, _MODEL, True),
     FindingType.SEM_FALLBACK_MODELO: (HarnessCategory.RESILIENCIA, _MODEL, True),
@@ -82,6 +84,10 @@ _FINDING_SPEC: dict[FindingType, tuple[HarnessCategory, str, bool]] = {
     FindingType.GUARDRAIL_INJECAO_AUSENTE: (HarnessCategory.SEGURANCA, _PROMPTS, True),
     FindingType.CONTRADICAO_MODELO_CONFIG: (HarnessCategory.RESILIENCIA, _MODEL, True),
     FindingType.CONTRADICAO_FLUXO_PROMPT: (HarnessCategory.ORQUESTRACAO, _EDGES, True),
+    # Fase 1 Tier 1 — fatos determinísticos que acendem as categorias 9, 14 e 4.
+    FindingType.SEGREDO_HARDCODED: (HarnessCategory.SEGURANCA, _CONFIGS, True),
+    FindingType.MODELO_SEM_VERSAO_FIXA: (HarnessCategory.CICLO_DE_VIDA, _CONFIGS, True),
+    FindingType.TOOL_SEM_SCHEMA: (HarnessCategory.FERRAMENTAS, _TOOLS, True),
 }
 
 # Guarda em import: toda a taxonomia tem categoria de harness (nenhum FindingType órfão).
@@ -98,6 +104,7 @@ _CATEGORY_CONFIDENCE: dict[HarnessCategory, Confidence] = {
     HarnessCategory.SEGURANCA: Confidence.ALTO,
     HarnessCategory.CUSTO_PERFORMANCE: Confidence.ALTO,
     HarnessCategory.AVALIACAO_CONTINUA: Confidence.ALTO,
+    HarnessCategory.CICLO_DE_VIDA: Confidence.ALTO,
     HarnessCategory.CONTEXTO: Confidence.MEDIO,
     HarnessCategory.SAIDAS_VERIFICACAO: Confidence.MEDIO,
 }
@@ -108,7 +115,6 @@ _ROADMAP_NOTE: dict[HarnessCategory, str] = {
     HarnessCategory.SKILLS: "sem check nesta fase — roadmap",
     HarnessCategory.OBSERVABILIDADE: "sem check nesta fase — roadmap (Tier 2)",
     HarnessCategory.EXECUCAO_DURAVEL: "sem check nesta fase — roadmap (Tier 2)",
-    HarnessCategory.CICLO_DE_VIDA: "sem check nesta fase — roadmap (Tier 1)",
 }
 
 
@@ -125,6 +131,8 @@ def _precondition_met(key: str, tsm: TargetStaticModel) -> bool:
         return bool(tsm.edges) or bool(tsm.loops)
     if key == _PROMPTS:
         return bool(tsm.prompts)
+    if key == _CONFIGS:
+        return bool(tsm.configs) or bool(tsm.model_assignments)
     return False
 
 

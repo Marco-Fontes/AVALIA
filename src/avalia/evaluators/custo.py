@@ -6,6 +6,8 @@ modelos e redundância. `SEM_FALLBACK_MODELO` cruza com Robustez (RNF-12).
 
 from __future__ import annotations
 
+import re
+
 from avalia.config.evaluator_config import DEFAULT_SCORING, ScoringConfig
 from avalia.domain.contracts import DimensionResult, TargetClassification
 from avalia.domain.enums import Confidence, Dimension, Urgency
@@ -23,6 +25,18 @@ from avalia.extract.contradictions import detect_contradictions
 from avalia.judge.base import JudgeContribution
 
 RUBRIC = "custo/v1"
+
+# Fase 1 Tier 1 (harness: Ciclo de vida) — detecção conservadora de alias móvel de modelo.
+# Exige família de modelo reconhecida E sufixo móvel ("latest") → baixíssimo ruído (não pega
+# tags de docker como "python:3.12-latest", nem slugs sem data como "gpt-4o").
+_MODEL_FAMILY = re.compile(
+    r"\b(gpt|claude|gemini|llama|mistral|command|deepseek|qwen|grok|o1|o3)\b", re.IGNORECASE
+)
+
+
+def _is_moving_model_alias(expr: str) -> bool:
+    text = expr.strip().strip("'\"").lower()
+    return "latest" in text and text.endswith("latest") and bool(_MODEL_FAMILY.search(text))
 
 
 def evaluate_custo(
@@ -74,6 +88,22 @@ def evaluate_custo(
         )
         findings.append(f)
         recs.append(recommend("Limitar iterações do loop para conter custo", Urgency.IMPORTANTE, f))
+
+    # Fase 1 Tier 1 (harness: Ciclo de vida) — modelo em alias móvel (sem versão fixa).
+    for item in tsm.configs:
+        if _is_moving_model_alias(item.value_expr):
+            m = make_finding(
+                FindingType.MODELO_SEM_VERSAO_FIXA,
+                Urgency.IMPORTANTE,
+                f"Modelo em alias móvel (sem versão fixa) em `{item.key}`.",
+                "O slug aponta para um alias móvel (ex.: '-latest'); o provedor pode trocar o "
+                "modelo sem aviso, causando regressão silenciosa sem eval.",
+                item.evidence,
+            )
+            findings.append(m)
+            recs.append(
+                recommend(f"Fixar a versão do modelo em `{item.key}`", Urgency.IMPORTANTE, m)
+            )
 
     # T-106: contradições modelo declarado≠usado (dimensão dona = Custo, regra 4) — CB-08.
     contradictions = [f for f in detect_contradictions(tsm) if f.dimension is Dimension.CUSTO]
