@@ -90,11 +90,14 @@ def test_static_ceiling_below_max_static_score_is_rejected():
         EvaluatorConfig(static_ceiling=85)
 
 
-def test_markdown_annotates_static_readiness():
+def test_markdown_leads_with_harness_coverage():
     md = render_markdown(_report(EvaluatorConfig()))
-    assert "Prontidão estática" in md
+    # Fase 0: o número de topo passou a ser a cobertura de harness (0–100 real, sem teto); o
+    # caveat comportamental vira a nota "Fase 2"; a matriz por dimensão vira mecânica interna.
+    assert "Cobertura de harness — análise estática" in md
     assert "Fase 2" in md
-    assert "≈ **90**" in md
+    assert "## Cobertura de harness (análise estática)" in md  # a camada é o resultado primário
+    assert "## Matriz por dimensão (mecânica interna)" in md
 
 
 def test_static_ceiling_does_not_change_score_or_verdict():

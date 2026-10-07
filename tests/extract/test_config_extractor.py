@@ -93,6 +93,26 @@ def test_malformed_config_marked_unreadable_without_crash():
     assert r.configs == []
 
 
+_INI_LOGGING = """
+[loggers]
+keys = root
+
+[formatter_generic]
+format = %(levelname)-5.5s [%(name)s] %(message)s
+datefmt = %H:%M:%S
+"""
+
+
+def test_ini_with_logging_format_is_not_unreadable():
+    # F1/RNF-08: `%(levelname)s` num `format` de logging é INI válido. Com a interpolação padrão
+    # do configparser, ler o valor dispara InterpolationSyntaxError e o arquivo todo era marcado
+    # ilegível (falso positivo que derrubava a confiança de TODAS as dimensões). interpolation=None.
+    r = ConfigExtractor().extract({"alembic.ini": _INI_LOGGING})
+    assert r.unreadable_files == []
+    fmt = next(c for c in r.configs if c.key == "formatter_generic.format")
+    assert "%(levelname)" in fmt.value_expr  # valor literal preservado, não interpolado
+
+
 def test_lock_files_are_ignored_not_parsed_as_config():
     # Lock files (mesmo com extensão de config) são dados gerados → ignorados, não parseados (§10).
     tsm = build_tsm(

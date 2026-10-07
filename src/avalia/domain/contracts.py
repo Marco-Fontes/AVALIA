@@ -27,6 +27,7 @@ from avalia.domain.enums import (
     CheckNature,
     Confidence,
     Dimension,
+    HarnessCategory,
     Topology,
     Urgency,
     Verdict,
@@ -346,6 +347,41 @@ class ReportMetadata(BaseModel):
     budget_usage: BudgetUsage | None = None  # v1.4 (spec v0.5 §4.2.8, DQ-01) — aditivo
 
 
+class HarnessCategoryCoverage(BaseModel):
+    """Cobertura de UMA categoria de harness (CAMADA de projeção — não altera o motor).
+
+    `assessed=False` → nenhum check desta categoria se aplica ao alvo/modo (n/a honesto; fora do
+    denominador da cobertura geral). `coverage` é a fração de checks aplicáveis sem achado, em
+    0–100 (naturalmente sem teto). `confidence` reflete a força do sinal estático da categoria.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    category: HarnessCategory
+    assessed: bool
+    coverage: int | None = Field(default=None, ge=0, le=100)  # None quando assessed=False
+    applicable_checks: int = Field(default=0, ge=0)
+    passed_checks: int = Field(default=0, ge=0)
+    confidence: Confidence = Confidence.ALTO
+    note: str | None = None
+    findings: list[Finding] = Field(default_factory=list)
+
+
+class HarnessCoverageReport(BaseModel):
+    """Projeção 'Cobertura de harness — análise estática' sobre as dimensões (Fase 0).
+
+    Número honesto 0–100 = categorias avaliadas sem achado ÷ categorias avaliadas; categorias
+    n/a (sem check nesta fase/modo) ficam fora do denominador e aparecem declaradas.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    coverage: int = Field(ge=0, le=100)
+    assessed_categories: int = Field(ge=0)
+    passed_categories: int = Field(ge=0)
+    categories: list[HarnessCategoryCoverage] = Field(min_length=1)
+
+
 class EvaluationReport(BaseModel):
     """Laudo final autocontido (RF-25, RNF-10). Exige os blocos 4.2.1–4.2.8."""
 
@@ -358,3 +394,4 @@ class EvaluationReport(BaseModel):
     comparison: VersionComparison | None = None  # 4.2.5 (CB-06: opcional)
     divergences: list[DivergenceRecord] = Field(default_factory=list)  # 4.2.7
     metadata: ReportMetadata  # 4.2.8
+    harness_coverage: HarnessCoverageReport | None = None  # Fase 0: camada de cobertura (projeção)

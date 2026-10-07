@@ -30,7 +30,12 @@ from avalia.hitl.runner import run_evaluation
 from avalia.loader import read_target_directory
 from avalia.model_gateway.roles import ModelRole
 from avalia.persistence.repository import ReportRepository
-from avalia.report.render import describe_budget_usage, render_json, render_markdown
+from avalia.report.harness import CATEGORY_META
+from avalia.report.render import (
+    describe_budget_usage,
+    render_json,
+    render_markdown,
+)
 
 if TYPE_CHECKING:
     from avalia.model_gateway.gateway import ModelGateway
@@ -178,14 +183,32 @@ def _summary(report: EvaluationReport, status: RunStatus, mode: str, out_paths: 
     lines.append("== AVALIA - resumo do laudo ==")
     if status is RunStatus.PARTIAL:
         lines.append("[!] LAUDO PARCIAL - a análise não foi integral (ver limitações no laudo).")
-    lines.append(
-        f"  Veredito : {h.verdict.value}   Score: {h.score}/100   Confiança: {h.confidence.value}"
-    )
-    # Frente 2: o teto da Fase 1 é ~{static_ceiling}; a faixa até 100 é reservada à Fase 2.
-    lines.append(
-        f"  Prontidão estática: {h.score}/100 "
-        f"(teto Fase 1 ~{h.static_ceiling}; {h.static_ceiling}-100 = Fase 2 dinâmica)"
-    )
+    # O resultado é a COBERTURA DE HARNESS por categoria; o veredito é o título.
+    lines.append(f"  Veredito: {h.verdict.value}")
+    hc = report.harness_coverage
+    if hc is not None:
+        lines.append(
+            f"  Cobertura de harness — análise estática: {hc.coverage}/100 "
+            f"({hc.passed_categories}/{hc.assessed_categories} categorias avaliadas sem achado)"
+        )
+        lines.append("  Cobertura por categoria:")
+        label_w = max(len(label) for _, _, label in CATEGORY_META)
+        meta_by_cat = {cat: (num, label) for cat, num, label in CATEGORY_META}
+        for c in hc.categories:
+            num, label = meta_by_cat[c.category]
+            if not c.assessed:
+                situ = c.note or "sem check nesta fase"
+                lines.append(f"    {num:>2}. {label:<{label_w}}  n/a   {situ}")
+                continue
+            if c.findings:
+                types = ", ".join(sorted({f.finding_type.value for f in c.findings}))
+                situ = f"{len(c.findings)} achado(s): {types}"
+            else:
+                situ = c.note or "ok"
+            lines.append(
+                f"    {num:>2}. {label:<{label_w}}  {c.coverage:>3}%  conf. {c.confidence.value}"
+                f"   {situ}"
+            )
     cls = h.classification
     lines.append(
         f"  Classificação: {cls.topology.value} "

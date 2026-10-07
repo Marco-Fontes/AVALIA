@@ -42,13 +42,51 @@ def test_normal_source_is_readable():
     assert unreadable_files({"clean.py": "def f():\n    return 1\n"}) == {}
 
 
-def test_cb02_obfuscated_fixture_marks_unreadable_and_impacts_all_dims():
+def test_cb02_obfuscated_source_marks_unreadable_and_impacts_all_dims():
     tsm = build_tsm(_load(), EvaluatorConfig())
     # CB-02: o arquivo ofuscado é marcado ilegível e não entra na análise a fundo.
     unreadable = {ref.file_path for ref in tsm.readability.unreadable_files}
     assert "obf.py" in unreadable
     assert "obf.py" not in tsm.coverage.fully_analyzed
-    # Postura conservadora Fase 1: todas as 7 dimensões impactadas.
+    # Código-fonte ilegível PODE conter agentes/prompts/loops/tools → impacta todas as dimensões.
     assert set(tsm.readability.impacted_dims) == set(Dimension)
     # o arquivo legível vizinho continua sendo analisado
     assert "main.py" in tsm.coverage.fully_analyzed
+
+
+def test_cb02_unreadable_config_impacts_only_config_dependent_dims():
+    # CB-02 escopado: um config quebrado toca só custo/performance/robustez (sinais
+    # determinísticos derivados de config). NÃO colapsa as comportamentais nem a trajetória —
+    # fim do falso "confiança baixa" global que um único arquivo quebrado produzia.
+    tsm = build_tsm({"app.py": "x = 1\n", "settings.yaml": "a:\n  b: c: d\n"})
+    unreadable = {ref.file_path for ref in tsm.readability.unreadable_files}
+    assert "settings.yaml" in unreadable
+    assert set(tsm.readability.impacted_dims) == {
+        Dimension.CUSTO,
+        Dimension.PERFORMANCE,
+        Dimension.ROBUSTEZ,
+    }
+
+
+def test_broken_yaml_under_docs_is_ignored_not_unreadable():
+    # Um YAML quebrado sob docs/ (ex.: spec de API) é documentação → ignorado, não ilegível:
+    # não entra em unreadable, não é amostrado e não rebaixa confiança de nada.
+    tsm = build_tsm({"app.py": "x = 1\n", "docs/api/openapi.yaml": "allOf:lixo\n  - a: b: c\n"})
+    unreadable = {ref.file_path for ref in tsm.readability.unreadable_files}
+    assert "docs/api/openapi.yaml" not in unreadable
+    assert "docs/api/openapi.yaml" not in tsm.coverage.sampled
+    assert tsm.readability.impacted_dims == []
+
+
+def test_build_and_asset_files_are_out_of_scope_no_partial():
+    # Dockerfile, shell, CSS, SVG não são código/config de agentes → fora de escopo, sem PARCIAL.
+    tsm = build_tsm(
+        {
+            "app.py": "x = 1\n",
+            "Dockerfile.api": "FROM python:3.12\n",
+            "scripts/run.sh": "#!/bin/sh\necho hi\n",
+            "web/styles.css": "body { color: red; }\n",
+            "web/logo.svg": "<svg></svg>\n",
+        }
+    )
+    assert tsm.coverage.sampled == []  # nada amostrado → laudo não será PARCIAL

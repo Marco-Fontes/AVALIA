@@ -337,20 +337,46 @@ class _Walker:
         if catch is not None and _has_descendant(catch, "continue_statement"):
             self._add_eh(node, "retry")
 
+    def _loop_is_service(self, node: Any) -> tuple[bool, str]:
+        """Laço de serviço/stream (daemon, WebSocket, SSE) — não trajetória de agente. Análogo a
+        `python_extractor._loop_is_service` (T4.1b): gerador (`yield`) ou cadência de espera
+        (`sleep`/`setTimeout`) a cada iteração → dirigido por evento externo, sem teto por
+        design."""
+        body = node.child_by_field_name("body") or node
+        if _has_descendant(body, "yield_expression"):
+            return True, "gerador/stream (yield no corpo) — dirigido pelo consumidor"
+        stack = [body]
+        while stack:
+            n = stack.pop()
+            if n.type == "call_expression":
+                fn = n.child_by_field_name("function")
+                txt = self._txt(fn).lower() if fn is not None else ""
+                if txt.endswith("sleep") or "settimeout" in txt:
+                    return (
+                        True,
+                        "laço de serviço (espera a cada iteração) — dirigido por evento externo",
+                    )
+            stack.extend(n.named_children)
+        return False, ""
+
     def _on_while_statement(self, node: Any) -> None:
         self.loop_idx += 1
         cond = self._field(node, "condition")
         is_true = cond is not None and _has_descendant(cond, "true")
         has_break = _has_own_break(node)
+        service, svc_reason = self._loop_is_service(node)
         if is_true and not has_break:
             has_cap, reason = False, "while(true) sem break — loop potencialmente infinito"
         else:
             has_cap, reason = True, ("tem break" if has_break else "condição de parada variável")
+        if service and not has_cap:
+            reason = f"{reason}; {svc_reason}"
         self.loops.append(
             LoopInfo(
                 symbol=f"{self._sym()}:while#{self.loop_idx}",
                 kind="while",
                 has_cap=has_cap,
+                service=service,
                 cap_reason=reason,
                 evidence=self._ev(node, self._sym(), "loop"),
             )

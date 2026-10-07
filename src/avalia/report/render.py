@@ -8,12 +8,65 @@ Rastreabilidade: plan §3.10; RNF-10.
 
 from __future__ import annotations
 
-from avalia.domain.contracts import BudgetUsage, EvaluationReport
+from avalia.config.evaluator_config import BandThresholds
+from avalia.domain.contracts import (
+    BudgetUsage,
+    DimensionResult,
+    EvaluationReport,
+    HarnessCoverageReport,
+)
+from avalia.domain.enums import Urgency
+from avalia.report.harness import CATEGORY_META
+
+_URGENCY_RANK = {Urgency.CRITICO: 3, Urgency.IMPORTANTE: 2, Urgency.SUGESTAO: 1}
+_CATEGORY_LABEL = {cat: (num, label) for cat, num, label in CATEGORY_META}
 
 
 def render_json(report: EvaluationReport) -> str:
     """Projeção máquina — JSON fiel do contrato."""
     return report.model_dump_json(indent=2)
+
+
+def _band_label(score: int | None, th: BandThresholds) -> str:
+    """Faixa do veredito (spec §4.2.6) para exibição por dimensão."""
+    if score is None:
+        return "não aplicável"
+    if score >= th.aprovado_min:
+        return "pronto"
+    if score >= th.aprovacao_condicional_min:
+        return "adequado c/ ressalvas"
+    return "insuficiente"
+
+
+def _top_finding_label(dr: DimensionResult) -> str:
+    """Achado de maior urgência da dimensão, para a coluna-resumo da matriz."""
+    if not dr.findings:
+        return "—"
+    top = max(dr.findings, key=lambda f: _URGENCY_RANK.get(f.urgency, 0))
+    return f"[{top.urgency.value}] {top.finding_type.value}"
+
+
+def _harness_section(hc: HarnessCoverageReport) -> list[str]:
+    """Tabela da camada de cobertura de harness — o resultado primário (Fase 0)."""
+    lines = ["## Cobertura de harness (análise estática)", ""]
+    lines.append("| # | Categoria | Cobertura | Confiança | Achados / situação |")
+    lines.append("|---|---|---|---|---|")
+    for c in hc.categories:
+        num, label = _CATEGORY_LABEL[c.category]
+        if not c.assessed:
+            situacao = c.note or "sem check nesta fase"
+            lines.append(f"| {num} | {label} | n/a | — | {situacao} |")
+            continue
+        cobertura = f"{c.coverage}%"
+        conf = c.confidence.value
+        if c.findings:
+            types = ", ".join(sorted({f.finding_type.value for f in c.findings}))
+            situacao = f"{len(c.findings)} achado(s): {types}"
+        else:
+            situacao = c.note or "nenhum achado"
+        lines.append(f"| {num} | {label} | {cobertura} | {conf} | {situacao} |")
+    lines.append("")
+    return lines
 
 
 def _ceiling(value: object | None) -> str:
@@ -48,16 +101,16 @@ def render_markdown(report: EvaluationReport) -> str:
             "> ⚠️ **LAUDO PARCIAL** — a análise não foi integral; confiança reduzida (RF-12)."
         )
         lines.append("")
-    lines.append(f"- **Veredito:** {h.verdict.value} · **Score:** {h.score}/100")
-    # Frente 2: comunica honestamente o teto da prontidão estática (não muda cálculo/faixas).
-    headroom = max(0, 100 - h.static_ceiling)
-    lines.append(
-        f"- **Prontidão estática (Fase 1):** {h.score}/100 — teto da análise estática "
-        f"≈ **{h.static_ceiling}**; a faixa {h.static_ceiling}–100 só é atingível com avaliação "
-        f'dinâmica (Fase 2). *Não é "reprovado": ~{headroom} pontos são headroom reservado '
-        "à Fase 2.*"
-    )
-    lines.append(f"- **Confiança geral:** {h.confidence.value}")
+    # O resultado é a COBERTURA DE HARNESS por categoria; o veredito é o título.
+    lines.append(f"- **Veredito:** {h.verdict.value}")
+    hc = report.harness_coverage
+    if hc is not None:
+        lines.append(
+            f"- **Cobertura de harness — análise estática:** {hc.coverage}/100 "
+            f"({hc.passed_categories} de {hc.assessed_categories} categorias avaliadas sem "
+            "achado; categorias n/a declaradas abaixo, fora do denominador). 100 = tudo que se "
+            "checa estaticamente está presente; comportamento real depende de execução (Fase 2)."
+        )
     lines.append(
         f"- **Classificação:** {h.classification.topology.value} "
         f"(confiança {h.classification.classification_conf.value}); "
@@ -66,6 +119,29 @@ def render_markdown(report: EvaluationReport) -> str:
     lines.append(f"- **Perfil de pesos:** {h.effective_weights.source.value}")
     if h.classification.caveats:
         lines.append(f"- **Ressalvas de classificação:** {'; '.join(h.classification.caveats)}")
+    lines.append("")
+
+    # Resultado primário: cobertura pelas categorias de harness que o time usa como checklist.
+    if hc is not None:
+        lines.extend(_harness_section(hc))
+
+    # Mecânica interna: as 7 dimensões que alimentam a camada acima (nota ponderada por dimensão).
+    th = report.metadata.effective_config.thresholds
+    lines.append("## Matriz por dimensão (mecânica interna)")
+    lines.append("")
+    lines.append("| Dimensão | Nota | Faixa | Confiança | Achado principal |")
+    lines.append("|---|---|---|---|---|")
+    for dr in report.dimensions:
+        if not dr.applicable or dr.score is None:
+            lines.append(f"| {dr.dimension.value} | n/a | não aplicável | — | — |")
+            continue
+        conf = dr.confidence.value
+        if dr.static_limitations:
+            conf += " (estática: só presença)"
+        top = _top_finding_label(dr)
+        lines.append(
+            f"| {dr.dimension.value} | {dr.score} | {_band_label(dr.score, th)} | {conf} | {top} |"
+        )
     lines.append("")
 
     lines.append("## Dimensões")

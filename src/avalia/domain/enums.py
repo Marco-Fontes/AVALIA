@@ -27,6 +27,29 @@ BEHAVIORAL_DIMENSIONS: frozenset[Dimension] = frozenset(
 )
 
 
+class HarnessCategory(StrEnum):
+    """Categorias de harness de produção para a CAMADA de cobertura (projeção sobre as 7
+    dimensões; não substitui o motor). Subconjunto estaticamente avaliável do checklist de
+    harness — excluídas desta fase: hooks/extensibilidade, interação humana e governança
+    (sinal estático fino demais ou fora do escopo de análise de código). A numeração preserva
+    a do checklist de origem para o time reconhecer (3,5,10,12,14 ainda sem check nesta fase)."""
+
+    ORQUESTRACAO = "orquestracao"
+    CONTEXTO = "contexto"
+    MEMORIA = "memoria"
+    FERRAMENTAS = "ferramentas"
+    SKILLS = "skills"
+    MULTIAGENTE = "multiagente"
+    RESILIENCIA = "resiliencia"
+    SAIDAS_VERIFICACAO = "saidas_verificacao"
+    SEGURANCA = "seguranca"
+    OBSERVABILIDADE = "observabilidade"
+    AVALIACAO_CONTINUA = "avaliacao_continua"
+    EXECUCAO_DURAVEL = "execucao_duravel"
+    CICLO_DE_VIDA = "ciclo_de_vida"
+    CUSTO_PERFORMANCE = "custo_performance"
+
+
 class Confidence(StrEnum):
     """Confiança de um julgamento/classificação (RNF-03). Ordenável via `rank`."""
 

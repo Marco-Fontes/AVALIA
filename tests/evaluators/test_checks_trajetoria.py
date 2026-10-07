@@ -68,3 +68,23 @@ def test_trajetoria_clean_target_scores_high():
     assert not [f for f in dr.findings if f.finding_type is FindingType.LOOP_SEM_TETO]
     assert dr.reasoning  # CA-05: reasoning sempre presente
     assert dr.confidence is Confidence.ALTO
+
+
+_SERVICE_DAEMON = """
+import time
+
+
+def main():
+    while True:
+        poll()
+        time.sleep(30)
+"""
+
+
+def test_trajetoria_service_loop_is_not_a_defect():
+    # T4.1b: daemon/stream roda sem teto por design → NÃO vira LOOP_SEM_TETO nem rebaixa a nota.
+    # Evita o falso positivo que marcava servidores WebSocket/SSE e loops de serviço como críticos.
+    tsm = build_tsm({"run_loop.py": _SERVICE_DAEMON})
+    dr = evaluate_trajetoria(tsm)
+    assert not [f for f in dr.findings if f.finding_type is FindingType.LOOP_SEM_TETO]
+    assert dr.score >= 75  # não cai para a faixa condicional

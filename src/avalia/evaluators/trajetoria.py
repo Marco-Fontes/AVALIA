@@ -62,7 +62,9 @@ def evaluate_trajetoria(
             ),
         )
 
-    uncapped = [loop for loop in tsm.loops if not loop.has_cap]
+    # Laço de serviço/stream (daemon, WebSocket, SSE) roda sem teto POR DESIGN — não é defeito
+    # de trajetória (T4.1b). Entra como fato no check, mas não gera LOOP_SEM_TETO.
+    uncapped = [loop for loop in tsm.loops if not loop.has_cap and not loop.service]
 
     findings: list[Finding] = []
     recommendations: list[Recommendation] = []
