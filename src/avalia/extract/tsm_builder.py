@@ -43,7 +43,29 @@ _DOC_EXTENSIONS = (
     ".html",
     ".htm",
     ".lock",
+    # Build/infra/assets/templates: não são código/config de agentes a avaliar → fora de escopo,
+    # não disparam PARCIAL (PLANO-MELHORIAS §3). Antes caíam em `best_effort` e geravam amostragem
+    # espúria (ex.: Dockerfile, *.sh, *.css, *.svg num alvo Python/TS).
+    ".css",
+    ".scss",
+    ".sass",
+    ".less",
+    ".svg",
+    ".sh",
+    ".bash",
+    ".zsh",
+    ".fish",
+    ".ps1",
+    ".bat",
+    ".cmd",
+    ".mako",
+    ".jinja",
+    ".jinja2",
+    ".j2",
+    ".example",
 )
+_DOC_DIRS = frozenset({"docs", "doc", "documentation"})
+_DOCS_DIR_CONFIG_EXTS = (".yaml", ".yml", ".json", ".toml", ".ini", ".cfg")
 _DOC_BASENAMES = frozenset(
     {
         "license",
@@ -65,6 +87,13 @@ _DOC_BASENAMES = frozenset(
         "composer.lock",
         "pipfile.lock",
         "pnpm-lock.yaml",
+        # Marcadores de ferramentas (sem conteúdo a avaliar).
+        ".prettierignore",
+        ".npmignore",
+        ".eslintignore",
+        ".stylelintignore",
+        ".gitkeep",
+        ".keep",
     }
 )
 
@@ -76,7 +105,32 @@ def _basename(path: str) -> str:
 def _is_ignorable_path(path: str) -> bool:
     """Documentação/dados não-analisáveis — fora da análise e SEM disparar parcial."""
     base = _basename(path)
-    return base in _DOC_BASENAMES or base.endswith(_DOC_EXTENSIONS)
+    if base in _DOC_BASENAMES or base.endswith(_DOC_EXTENSIONS):
+        return True
+    if base == "dockerfile" or base.startswith("dockerfile."):
+        return True
+    # YAML/JSON/TOML/INI sob `docs/` são documentação (specs de API, exemplos), não config
+    # operacional a inspecionar — e um arquivo quebrado aí não deve rebaixar a confiança.
+    segments = path.replace("\\", "/").lower().split("/")[:-1]
+    if any(d in segments for d in _DOC_DIRS) and base.endswith(_DOCS_DIR_CONFIG_EXTS):
+        return True
+    return False
+
+
+# CB-02: dimensões cuja confiança depende de ler um arquivo de cada papel. Config alimenta os
+# sinais determinísticos de custo/performance/robustez (max_tokens, timeout, fallback); não toca
+# as dimensões comportamentais nem a trajetória.
+_CONFIG_DEPENDENT_DIMS = frozenset({Dimension.CUSTO, Dimension.PERFORMANCE, Dimension.ROBUSTEZ})
+
+
+def _dims_impacted_by_unreadable(path: str) -> frozenset[Dimension]:
+    """Quais dimensões perdem confiança quando ESTE arquivo é ilegível (CB-02)."""
+    lang = language_for_path(path)
+    if lang in ("python", "javascript", "typescript"):
+        return frozenset(_ALL_DIMENSIONS)  # código: pode conter agentes/prompts/loops/tools
+    if lang == "config":
+        return _CONFIG_DEPENDENT_DIMS
+    return frozenset()  # outro papel → sem dependência dimensional
 
 
 def build_tsm(files: dict[str, str], config: EvaluatorConfig | None = None) -> TargetStaticModel:
@@ -161,8 +215,15 @@ def build_tsm(files: dict[str, str], config: EvaluatorConfig | None = None) -> T
         sampled=sampled,
         reason="; ".join(reasons) if reasons else None,
     )
-    # CB-02: havendo ilegível, todas as dimensões ficam impactadas (postura conservadora Fase 1).
-    impacted = list(_ALL_DIMENSIONS) if all_unreadable else []
+    # CB-02: só as dimensões que DEPENDEM do arquivo ilegível perdem confiança ("marca julgamentos
+    # impactados"). Código-fonte ilegível pode conter agentes/prompts/loops/tools → impacto amplo;
+    # config ilegível toca apenas sinais de custo/performance/robustez; outro tipo não impacta. Um
+    # único arquivo quebrado não colapsa mais TODAS as dimensões para "baixo" (correção do falso
+    # "confiança baixa" global que o antigo `_ALL_DIMENSIONS if all_unreadable` produzia).
+    impacted_set: set[Dimension] = set()
+    for p in all_unreadable:
+        impacted_set |= _dims_impacted_by_unreadable(p)
+    impacted = [d for d in _ALL_DIMENSIONS if d in impacted_set]
     readability = ReadabilityReport(unreadable_files=unreadable_refs, impacted_dims=impacted)
 
     return TargetStaticModel(

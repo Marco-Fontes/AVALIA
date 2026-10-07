@@ -28,6 +28,7 @@ from avalia.domain.enums import Confidence, Dimension, Urgency
 from avalia.domain.tsm import TargetStaticModel
 from avalia.domain.weights import WeightProfile
 from avalia.extract.registry import is_structural_only
+from avalia.report.harness import compute_harness_coverage
 
 _URGENCY_ORDER = {Urgency.CRITICO: 0, Urgency.IMPORTANTE: 1, Urgency.SUGESTAO: 2}
 _DIM_ORDER = {d: i for i, d in enumerate(Dimension)}
@@ -239,4 +240,5 @@ def build_report(
         comparison=comparison,
         divergences=sorted_divergences,
         metadata=metadata,
+        harness_coverage=compute_harness_coverage(ordered, tsm),  # Fase 0: camada de cobertura
     )

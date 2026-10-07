@@ -38,7 +38,9 @@ def evaluate_custo(
     has_token_limit = presence(tsm, "token_limit")
     has_cache = presence(tsm, "cache")
     has_fallback = presence(tsm, "fallback_modelo")
-    uncapped = [loop for loop in tsm.loops if not loop.has_cap]
+    # Laço de serviço/stream roda sem teto por design — custo contínuo de operação, não "custo
+    # ilimitado por iteração descontrolada". Excluído do achado SEM_TETO_CUSTO (T4.1b).
+    uncapped = [loop for loop in tsm.loops if not loop.has_cap and not loop.service]
 
     if not has_token_limit:
         f = make_finding(

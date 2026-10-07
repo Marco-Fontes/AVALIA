@@ -63,6 +63,46 @@ def test_for_range_is_capped():
     assert r.loops and all(loop.has_cap for loop in r.loops)
 
 
+_DAEMON = """
+import time
+
+
+def main():
+    while True:
+        do_scan()
+        time.sleep(30)
+"""
+
+_STREAM = """
+async def stream_signals():
+    while True:
+        for row in fetch():
+            yield row
+        await asyncio.sleep(1.0)
+"""
+
+
+def test_true_agent_loop_is_not_service():
+    # T4.1b: `while True` que itera passos (sem sleep/yield) É risco de trajetória — service=False.
+    r = PythonExtractor().extract({"alvo/main.py": _MULTI})
+    loops = [loop for loop in r.loops if not loop.has_cap]
+    assert len(loops) == 1 and loops[0].service is False
+
+
+def test_daemon_sleep_loop_is_service():
+    # T4.1b: daemon `while True: ... time.sleep(...)` roda sem teto por design → service=True.
+    r = PythonExtractor().extract({"alvo/run_loop.py": _DAEMON})
+    uncapped = [loop for loop in r.loops if not loop.has_cap]
+    assert len(uncapped) == 1 and uncapped[0].service is True
+
+
+def test_stream_generator_loop_is_service():
+    # T4.1b: gerador SSE `while True: ... yield ...` é stream dirigido pelo consumidor → service.
+    r = PythonExtractor().extract({"alvo/sse.py": _STREAM})
+    uncapped = [loop for loop in r.loops if not loop.has_cap]
+    assert uncapped and all(loop.service for loop in uncapped)
+
+
 def test_extracts_prompts_edges_state():
     r = PythonExtractor().extract({"alvo/main.py": _MULTI})
     assert len(r.prompts) >= 2  # dois prompts distintos
