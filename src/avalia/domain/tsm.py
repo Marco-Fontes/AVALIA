@@ -45,6 +45,9 @@ class ToolDef(_Fact):
     name: str
     description: str | None = None
     params: list[str] = Field(default_factory=list)
+    # Fase 1 Tier 1: há schema de argumentos validável? (params tipados ou `args_schema=`).
+    # Default True: extratores que não inferem schema (ex.: tree-sitter JS/TS) não disparam falso.
+    has_schema: bool = True
 
 
 class Edge(_Fact):

@@ -160,6 +160,25 @@ def _key_kind(key: str) -> str | None:
     return None
 
 
+def _tool_has_schema(node: ast.FunctionDef | ast.AsyncFunctionDef) -> bool:
+    """Fase 1 Tier 1 — a ferramenta tem schema de argumentos validável?
+
+    Sinal determinístico conservador (baixo ruído): params todos tipados (o framework infere o
+    schema) OU `args_schema=`/`schema=` no decorador. Sem params → schema vazio válido. Caso
+    contrário (algum arg sem anotação), não há schema a validar → TOOL_SEM_SCHEMA."""
+    all_args = node.args.posonlyargs + node.args.args + node.args.kwonlyargs
+    non_self = [a for a in all_args if a.arg not in ("self", "cls")]
+    if not non_self:
+        return True
+    if all(a.annotation is not None for a in non_self):
+        return True
+    return any(
+        isinstance(d, ast.Call)
+        and any(kw.arg in ("args_schema", "args", "schema") for kw in d.keywords)
+        for d in node.decorator_list
+    )
+
+
 class _FileVisitor(ast.NodeVisitor):
     def __init__(self, path: str, source: str) -> None:
         self.path = path
@@ -233,6 +252,7 @@ class _FileVisitor(ast.NodeVisitor):
                     name=node.name,
                     description=ast.get_docstring(node),
                     params=params,
+                    has_schema=_tool_has_schema(node),
                     evidence=self._ev(node, sym, "tool"),
                 )
             )
