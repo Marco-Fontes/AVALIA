@@ -62,7 +62,9 @@ def evaluate_trajetoria(
             ),
         )
 
-    uncapped = [loop for loop in tsm.loops if not loop.has_cap]
+    # Laço de serviço/stream (daemon, WebSocket, SSE) roda sem teto POR DESIGN — não é defeito
+    # de trajetória (T4.1b). Entra como fato no check, mas não gera LOOP_SEM_TETO.
+    uncapped = [loop for loop in tsm.loops if not loop.has_cap and not loop.service]
 
     findings: list[Finding] = []
     recommendations: list[Recommendation] = []
@@ -83,6 +85,28 @@ def evaluate_trajetoria(
                 traces_to=finding.identity,
             )
         )
+
+    # Fase 1 Tier 1 (harness: Ferramentas) — ferramenta sem schema de args validável.
+    tool_findings: list[Finding] = []
+    for tool in tsm.tools:
+        if not tool.has_schema:
+            tf = Finding(
+                finding_type=FindingType.TOOL_SEM_SCHEMA,
+                urgency=Urgency.IMPORTANTE,
+                statement=f"Ferramenta `{tool.name}` sem schema de argumentos validado.",
+                reasoning="Parâmetros sem anotação de tipo nem args_schema — o modelo erra o "
+                "tool calling sem um contrato de argumentos.",
+                evidence=[tool.evidence],
+            )
+            tool_findings.append(tf)
+            recommendations.append(
+                Recommendation(
+                    statement=f"Definir schema de args (tipos/Pydantic) em `{tool.name}`",
+                    urgency=Urgency.IMPORTANTE,
+                    traces_to=tf.identity,
+                )
+            )
+    findings.extend(tool_findings)
 
     # T-106: contradições prompt↔fluxo (dimensão dona = Trajetória, regra 4) — CB-08.
     contradictions = [f for f in detect_contradictions(tsm) if f.dimension is Dimension.TRAJETORIA]
@@ -113,8 +137,9 @@ def evaluate_trajetoria(
             scoring.trajectory_no_cap_floor,
             scoring.trajectory_base_score - scoring.trajectory_no_cap_penalty * len(uncapped),
         )
-    # contradição (IMPORTANTE) penaliza como qualquer achado importante
-    score = max(0, score - scoring.penalty_for(Urgency.IMPORTANTE) * len(contradictions))
+    # contradição e ferramenta-sem-schema (IMPORTANTE) penalizam como qualquer achado importante
+    importantes = len(contradictions) + len(tool_findings)
+    score = max(0, score - scoring.penalty_for(Urgency.IMPORTANTE) * importantes)
     confidence = Confidence.ALTO  # veredito governado por fato determinístico
     confidence_reason: str | None = None
     if contradictions:

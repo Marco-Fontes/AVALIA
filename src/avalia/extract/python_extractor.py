@@ -119,6 +119,22 @@ def _is_retry_loop(loop: ast.For | ast.While) -> bool:
     return _body_has_try_continue(loop)
 
 
+def _loop_is_service(loop: ast.For | ast.While) -> tuple[bool, str]:
+    """T4.1b — distingue laço de SERVIÇO/STREAM de laço de TRAJETÓRIA de agente.
+
+    Um `while True` que (a) dorme a cada iteração (`time.sleep`/`asyncio.sleep`) ou (b) é um
+    gerador que faz `yield` no corpo é um daemon/servidor/stream dirigido por evento externo —
+    roda indefinidamente POR DESIGN. Não é o risco de "trajetória que não converge" (agente em
+    loop de raciocínio) que RF-DIM-T3 existe para capturar, então não é loop sem teto."""
+    for stmt in loop.body:
+        for n in ast.walk(stmt):
+            if isinstance(n, ast.Yield | ast.YieldFrom):
+                return True, "gerador/stream (yield no corpo) — dirigido pelo consumidor"
+            if isinstance(n, ast.Call) and _unparse_lower(n.func).endswith("sleep"):
+                return True, "laço de serviço (dorme a cada iteração) — dirigido por evento externo"
+    return False, ""
+
+
 def _is_fallback_role_iter(loop: ast.For | ast.While) -> bool:
     """T4.1 — fallback de modelo imperativo: iterar papéis/modelos contendo `fallback` junto de
     `primary`/`role`/`model` (ex.: `for role in (ModelRole.PRIMARY, ModelRole.FALLBACK)`)."""
@@ -142,6 +158,25 @@ def _key_kind(key: str) -> str | None:
     if k in _STREAM_KW:
         return "streaming"
     return None
+
+
+def _tool_has_schema(node: ast.FunctionDef | ast.AsyncFunctionDef) -> bool:
+    """Fase 1 Tier 1 — a ferramenta tem schema de argumentos validável?
+
+    Sinal determinístico conservador (baixo ruído): params todos tipados (o framework infere o
+    schema) OU `args_schema=`/`schema=` no decorador. Sem params → schema vazio válido. Caso
+    contrário (algum arg sem anotação), não há schema a validar → TOOL_SEM_SCHEMA."""
+    all_args = node.args.posonlyargs + node.args.args + node.args.kwonlyargs
+    non_self = [a for a in all_args if a.arg not in ("self", "cls")]
+    if not non_self:
+        return True
+    if all(a.annotation is not None for a in non_self):
+        return True
+    return any(
+        isinstance(d, ast.Call)
+        and any(kw.arg in ("args_schema", "args", "schema") for kw in d.keywords)
+        for d in node.decorator_list
+    )
 
 
 class _FileVisitor(ast.NodeVisitor):
@@ -217,6 +252,7 @@ class _FileVisitor(ast.NodeVisitor):
                     name=node.name,
                     description=ast.get_docstring(node),
                     params=params,
+                    has_schema=_tool_has_schema(node),
                     evidence=self._ev(node, sym, "tool"),
                 )
             )
@@ -389,11 +425,15 @@ class _FileVisitor(ast.NodeVisitor):
         if isinstance(node.iter, ast.Call) and _deco_name(node.iter.func) in _UNBOUNDED_ITERS:
             has_cap = False
             reason = f"itera sobre {_deco_name(node.iter.func)}() sem limite"
+        service, svc_reason = _loop_is_service(node)
+        if service and not has_cap:
+            reason = f"{reason}; {svc_reason}"
         self.loops.append(
             LoopInfo(
                 symbol=f"{self._sym()}:for#{self.loop_idx}",
                 kind="for",
                 has_cap=has_cap,
+                service=service,
                 cap_reason=reason,
                 evidence=self._ev(node, self._sym(), "loop"),
             )
@@ -405,17 +445,21 @@ class _FileVisitor(ast.NodeVisitor):
         self.loop_idx += 1
         is_true = isinstance(node.test, ast.Constant) and bool(node.test.value) is True
         has_break = _has_own_break(node)
+        service, svc_reason = _loop_is_service(node)
         if is_true and not has_break:
             has_cap = False
             reason = "while True sem break — loop potencialmente infinito"
         else:
             has_cap = True
             reason = "tem break" if has_break else "condição de parada variável"
+        if service and not has_cap:
+            reason = f"{reason}; {svc_reason}"
         self.loops.append(
             LoopInfo(
                 symbol=f"{self._sym()}:while#{self.loop_idx}",
                 kind="while",
                 has_cap=has_cap,
+                service=service,
                 cap_reason=reason,
                 evidence=self._ev(node, self._sym(), "loop"),
             )

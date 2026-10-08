@@ -45,6 +45,9 @@ class ToolDef(_Fact):
     name: str
     description: str | None = None
     params: list[str] = Field(default_factory=list)
+    # Fase 1 Tier 1: há schema de argumentos validável? (params tipados ou `args_schema=`).
+    # Default True: extratores que não inferem schema (ex.: tree-sitter JS/TS) não disparam falso.
+    has_schema: bool = True
 
 
 class Edge(_Fact):
@@ -56,11 +59,18 @@ class Edge(_Fact):
 
 
 class LoopInfo(_Fact):
-    """Loop detectado. `has_cap` = tem teto de iteração (range/contador/break)."""
+    """Loop detectado. `has_cap` = tem teto de iteração (range/contador/break).
+
+    `service` = laço de SERVIÇO/STREAM (daemon com `sleep`, servidor WebSocket, gerador SSE):
+    roda indefinidamente por design, dirigido por evento externo. NÃO é o risco de "trajetória
+    que não converge" (agente em loop de raciocínio) que RF-DIM-T3 captura — os avaliadores de
+    Trajetória e Custo o excluem dos achados de loop sem teto. Permanece como fato no TSM.
+    """
 
     symbol: str
     kind: str  # for | while
     has_cap: bool
+    service: bool = False
     cap_reason: str | None = None  # por que se considera (ou não) limitado
 
 

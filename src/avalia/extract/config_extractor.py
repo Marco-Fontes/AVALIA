@@ -98,8 +98,10 @@ def _parse(path: str, source: str) -> object:
         return toml_data
     if lower.endswith(".env"):
         return _parse_env(source)
-    # .ini / .cfg
-    parser = configparser.ConfigParser()
+    # .ini / .cfg — interpolation=None: somos um LEITOR estático; não resolvemos `%(...)s`.
+    # Sem isso, o configparser engasga ao ler valores legítimos como um `format` de logging
+    # (`%(levelname)s`) e marca o arquivo inteiro como ilegível (falso positivo). F1/RNF-08.
+    parser = configparser.ConfigParser(interpolation=None)
     parser.optionxform = str  # type: ignore[assignment]  # preserva a caixa das chaves
     parser.read_string(source)
     result: dict[str, object] = {}
