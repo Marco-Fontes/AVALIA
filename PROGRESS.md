@@ -65,7 +65,7 @@ código/teste; (d) `ruff` + guarda RNF-05 verdes.
 
 | Tarefa | Dep | Entrega | Arquivos | Requisitos | Testes | DoD |
 |---|---|---|---|---|---|---|
-| **T-001** | — | esqueleto src-layout, deps (stack fechada), alvos format/lint/test, guardrails Fase A | `pyproject.toml`, `conftest.py`, `src/avalia/__init__.py`, `tests/fixtures/README.md` | infra (plan §2); LangSmith opcional | suíte coleta+roda | ✅ |
+| **T-001** | — | esqueleto src-layout, deps (stack fechada), alvos format/lint/test, guardrails Fase A | `pyproject.toml`, `conftest.py`, `src/avalia/__init__.py`, `tests/fixtures/README.md` | infra (plan §2); Langfuse opcional | suíte coleta+roda | ✅ |
 | **T-002** | T-001 | enums atômicos + `EvidenceRef` (exige símbolo) | `domain/enums.py`, `domain/evidence.py` | RF-14, RNF-07, RNF-03 | `tests/domain/test_enums_evidence.py` (6) | ✅ |
 | **T-003** | T-002 | taxonomia `FindingType` fechada + `normalize_location` + `finding_identity` (hash estável) | `domain/taxonomy.py` | RF-29, RNF-01; resolução #3 | `tests/domain/test_taxonomy.py` (6) | ✅ |
 | **T-004** | T-002, T-003 | contratos compostos + `EvaluationReport` (blocos 4.2.1–4.2.8) + slot opaco `dynamic_metrics` | `domain/contracts.py`, `domain/weights.py` | RF-09/10/11/14/19/25/27/29, RNF-02/03/07/08/10; S-05 | `tests/domain/test_contracts.py` (11) | ✅ |
@@ -253,15 +253,15 @@ se o AVALIA julga bem (MS-04/08/09). NÃO fixa limiar de "confiável" (D-04) nem
 
 | Tarefa | Entrega | Arquivos | Requisitos | Testes |
 |---|---|---|---|---|
-| **T-901** | tracing dual: `SpanCollector` (callback in-process, latência/tokens) + LangSmith opcional env-gated, no-op se ausente | `obs/{__init__,spans,tracing}.py` | MS-10; plan §3.11 | `tests/obs/test_tracing_spans.py` (4) |
+| **T-901** | tracing dual: `SpanCollector` (callback in-process, latência/tokens) + Langfuse opcional env-gated, no-op se ausente | `obs/{__init__,spans,tracing}.py` | MS-10; plan §3.11 | `tests/obs/test_tracing_spans.py` (4) |
 | **T-902** | esquema do dataset (`BenchmarkCase/Dataset`, `band_of_score`, loader YAML) + harness offline (concordância de veredito/dimensão, classificação, calibração) | `metaeval/{__init__,dataset,harness}.py` | MS-04/07/08/09; D-03/D-04 | (via smoke) |
 | **T-1007** | smoke do pipeline de medição sobre seed sintético | `tests/metaeval/fixtures/seed.yaml`, `tests/metaeval/test_metaeval_smoke.py` (2) | MS-04/08/09 (smoke) | — |
 
 **Decisões do M6 (confirmadas com o usuário):**
 - **Tracing dual:** o `SpanCollector` (subclasse de `BaseCallbackHandler`) registra spans por nó
   (latência sempre; tokens/custo quando há chamada real de modelo) e é aplicado no `invoke` via
-  `instrument_config`, **sem alterar `build_avalia_graph`**. A exportação LangSmith é env-gated
-  (`AVALIA_TRACING`/`LANGCHAIN_TRACING_V2`) com import guardado → `[]` se ausente. O laudo gera
+  `instrument_config`, **sem alterar `build_avalia_graph`**. A exportação Langfuse é env-gated
+  (`AVALIA_TRACING`/chaves `LANGFUSE_*`) com import guardado → `[]` se ausente. O laudo gera
   mesmo sem observabilidade (não-bloqueante, plan §3.11).
 - **Meta-avaliação = job offline** sobre `EvaluationReport`s + dataset; reusa `band_of_score`
   (faixas de produto, spec §4.2.6) para mapear o score de cada dimensão à faixa comparável ao
@@ -271,7 +271,7 @@ se o AVALIA julga bem (MS-04/08/09). NÃO fixa limiar de "confiável" (D-04) nem
 - **Smoke fora do gate `-m fast`:** `test_metaeval_smoke.py` não recebe a marca `fast`, então o
   Stop hook (`pytest -m fast`) o ignora; roda em `pytest -q` completo.
 
-**Aceite coberto no M6:** MS-10 (spans aparecem; laudo gera sem LangSmith), MS-04/08/09 (índices
+**Aceite coberto no M6:** MS-10 (spans aparecem; laudo gera sem Langfuse), MS-04/08/09 (índices
 calculados pelo harness sobre o seed — validação mecânica, não calibração).
 
 **CI (resposta à revisão da PR #7):** adicionado `.github/workflows/ci.yml` (GitHub Actions) que
@@ -535,13 +535,13 @@ execução:
 
 ### M11 — Endurecimento de produção / deployment ✅ *(parte de código concluída; ops documentado)*
 O único **gap de código** real era o serde do checkpointer (atrito do M3 = M8-4); o resto já
-existia (repo Postgres T-601, LangSmith env-gated T-901) e foi **documentado** para deployment.
+existia (repo Postgres T-601, Langfuse env-gated T-901) e foi **documentado** para deployment.
 
 | Tarefa | Estado | Entrega |
 |---|---|---|
 | **M8-4 / serde durável** | ✅ | `graph/serde.py` — `avalia_checkpoint_serde()`: `JsonPlusSerializer` com TODOS os tipos `avalia.*` (52, coletados por introspecção dos módulos de domínio/config/estado) na allowlist. Resolve o aviso do LangGraph ("tipos não-registrados serão bloqueados") → `interrupt`/`resume` (RF-24) à prova de `LANGGRAPH_STRICT_MSGPACK` e do `PostgresSaver`. `build_graph` passa a usá-lo no `MemorySaver` default. **Não usa allow-all** (segurança preservada). |
 | **M11-1 / Postgres em prod** | ✅ código (M8) + docs | O `PostgresReportRepository` (T-601) já é cabeado no CLI via `AVALIA_PG_DSN` (M8). README §Produção documenta o setup. |
-| **M11-2 / LangSmith** | ✅ docs | Já env-gated (T-901, não-bloqueante). README documenta `AVALIA_TRACING`/`LANGSMITH_API_KEY`. |
+| **M11-2 / Langfuse** | ✅ docs | Já env-gated (T-901, não-bloqueante). README documenta `AVALIA_TRACING`/chaves `LANGFUSE_*`. |
 | **M11-3 / API HTTP** | ⏸ adiado (deliberado) | Documentado como adiado (EC-05 sem auth na Fase 1; evitar superdimensionar). O grafo é reusável por um serviço futuro. |
 
 **Notas do M11:** o serde coleta tipos por introspecção (robusto a novos contratos — basta o
@@ -589,7 +589,7 @@ M10 → M11 → M12 (só após decisão de negócio + confirmação humana).
 ### Decisões/atritos acumulados (M1–M7) — insumo do roadmap acima
 - **Extrator `ast`-only** (escolha do usuário); tree-sitter deferido via a interface plugável.
 - **Tracing aplicado no `invoke` (callbacks), não na construção do grafo** — `build_avalia_graph`
-  permanece sem dependência de observabilidade; LangSmith é opcional e nunca bloqueia o laudo.
+  permanece sem dependência de observabilidade; Langfuse é opcional e nunca bloqueia o laudo.
 - **Meta-avaliação é job offline** sobre laudos + dataset; o limiar de "confiável" é diferido
   (D-04) e o dataset real é curadoria humana (D-03) — o código entrega só o pipeline de medição.
 - **Juiz injetável por gateway**; default determinístico, gateway mockado nos testes.

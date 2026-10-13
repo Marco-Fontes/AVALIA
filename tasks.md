@@ -45,9 +45,9 @@
 
 ### T-001 — Esqueleto do projeto e dependências
 - **Dep:** —
-- **Faz:** estrutura de pacotes; gestão de dependências (LangGraph, LangChain, Pydantic v2, driver Postgres, tree-sitter + tree-sitter-python, cliente LangSmith opcional); configuração de ambiente (.env para chaves e DSN do Postgres); lint/format/test runner.
+- **Faz:** estrutura de pacotes; gestão de dependências (LangGraph, LangChain, Pydantic v2, driver Postgres, tree-sitter + tree-sitter-python, cliente Langfuse opcional); configuração de ambiente (.env para chaves e DSN do Postgres); lint/format/test runner.
 - **Req:** infraestrutura (suporte a toda a stack — plan §2).
-- **DoD:** `import` dos pacotes-base OK; pipeline de CI roda testes vazios; LangSmith é opcional (ausência não quebra import).
+- **DoD:** `import` dos pacotes-base OK; pipeline de CI roda testes vazios; Langfuse é opcional (ausência não quebra import).
 
 ### T-002 — Enums e contratos atômicos
 - **Dep:** T-001
@@ -378,11 +378,11 @@ Cada avaliador combina checks determinísticos (T-301) + juiz-LLM (T-302) confor
 
 ## 11. Épico E9 — Observabilidade e Meta-Avaliação
 
-### T-901 — Tracing LangSmith não-bloqueante
+### T-901 — Tracing Langfuse não-bloqueante
 - **Dep:** T-801
 - **Faz:** spans por nó com custo/tokens/latência; desligável; ausência não quebra o laudo.
 - **Req:** MS-10; plan §3.11.
-- **DoD:** laudo gera com LangSmith indisponível; com ele ativo, spans aparecem.
+- **DoD:** laudo gera com Langfuse indisponível; com ele ativo, spans aparecem.
 
 ### T-902 — Esquema do dataset de benchmark + harness de meta-avaliação (offline) *(fronteira explícita — ajuste #5)*
 - **Dep:** T-603

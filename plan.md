@@ -88,7 +88,7 @@ Princípio arquitetural central (espelha o princípio norteador da Spec, Seção
 | **Pydantic v2** | **Adotado** | Contratos de dados de todo o State e do laudo (Seção 4); structured output dos juízes-LLM garante laudo sempre completo (RF-09, RF-25); validação de config de pesos rejeita entrada inválida (CB-07). | Nenhuma. |
 | **Checkpointer: MemorySaver (dev) / PostgresSaver (prod)** | **Adotado** | Necessário para `interrupt`/`resume` do `human_gate` (RF-24); sem ele o HITL perderia o estado da avaliação. | É **checkpoint de execução do grafo**, não armazenamento de laudos — não confundir (Seção 3.8). |
 | **Persistência de laudos históricos** | **Adotado, separado** | RF-28/RF-29 e D-02 exigem recuperar laudos de versões anteriores do mesmo alvo. Recomendação: PostgreSQL com colunas relacionais para indexação (target_id, version, created_at) + JSONB para o laudo serializado. | `[DECISÃO TÉCNICA EM ABERTO #3]` Postgres+JSONB vs. document store vs. arquivos versionados. |
-| **LangSmith (tracing + datasets)** | **Adotado p/ observabilidade e meta-avaliação** | Tracing de custo/latência por nó (suporte a MS-10, Seção 3.11); datasets de benchmark para concordância com vereditos humanos (MS-04, MS-07, MS-09, D-03). | Não pode ser dependência dura do caminho crítico do laudo (o laudo deve gerar sem LangSmith disponível). Observabilidade é lateral, não bloqueante. |
+| **Langfuse (tracing + datasets)** | **Adotado p/ observabilidade e meta-avaliação** | Tracing de custo/latência por nó (suporte a MS-10, Seção 3.11); datasets de benchmark para concordância com vereditos humanos (MS-04, MS-07, MS-09, D-03). | Não pode ser dependência dura do caminho crítico do laudo (o laudo deve gerar sem Langfuse disponível). Observabilidade é lateral, não bloqueante. |
 | **Streaming via `astream_events`** | **Adotado** | Expõe progresso por nó (início/fim, score parcial, custo parcial) — sustenta acompanhamento das US (Seção 3.12). | Nenhuma. |
 | **PydanticAI / LangChain para "sub-tarefas determinísticas simples"** | **Reenquadrado** | **Correção conceitual:** sub-tarefas verdadeiramente determinísticas (detectar teto de loop, timeout, mix de modelos) **não usam LLM** — são parsing AST puro (Seção 3.1/3.2), pré-requisito de RNF-01. PydanticAI/LangChain entram apenas como camada de *structured output* dos **juízes-LLM** (checks semânticos), garantindo saída Pydantic validada. | Escolha entre PydanticAI vs. LangChain `with_structured_output` é secundária; ambos servem. `[DECISÃO TÉCNICA EM ABERTO #2]` provedor/modelo do juiz. |
 | **Parser estático (novo item necessário)** | **Adicionado** | Nenhum item da stack proposta lê o código do alvo. É preciso um motor de parsing (Seção 3.1). Recomendação: `tree-sitter` (multilíngue, posições precisas para evidência — RF-14/RNF-07) + módulo `ast` nativo para Python first-class. | `[DECISÃO TÉCNICA EM ABERTO #1]` escopo de linguagens first-class. |
@@ -255,7 +255,7 @@ Versões do mesmo alvo são vinculadas por `target_id` (fornecido pelos metadado
 
 ### 3.11 Observabilidade e meta-avaliação — MS-04..10, D-03, D-04
 
-- **Tracing (LangSmith):** cada nó emite span com custo/tokens/latência → alimenta MS-10 (evolução) e dá visibilidade de gargalos. **Não bloqueante:** o laudo gera mesmo sem LangSmith.
+- **Tracing (Langfuse):** cada nó emite span com custo/tokens/latência → alimenta MS-10 (evolução) e dá visibilidade de gargalos. **Não bloqueante:** o laudo gera mesmo sem Langfuse.
 - **Subsistema de meta-avaliação (arquitetado agora, construído depois):** um **dataset de benchmark** (D-03) de sistemas-alvo com **veredito humano de referência por dimensão**. A métrica primária é **concordância de veredito por dimensão** (aprovado/ressalva/reprovado) — EC-10/MS-04 — calculada comparando o laudo do AVALIA ao rótulo humano. MS-09 mede a concordância da **classificação** (topologia/tipo). MS-08 valida que confiança "alta" concorda mais que "baixa".
 - **Limiar de "confiável":** não fixado (EC-10); calibrado após o primeiro lote (D-04). O plano prevê a *infraestrutura de medição*, não um número.
 - **Arquitetura:** o `EvaluationReport` já expõe veredito por dimensão e confiança em formato comparável ao rótulo humano → meta-avaliação é um job offline sobre o repositório de laudos + dataset, sem alterar o grafo.
@@ -415,7 +415,7 @@ Todos os testes operam sobre **fixtures de artefatos estáticos** (mini sistemas
 | R4 | **Identidade estável de achado** para diff de regressão | Comparação de versões ruidosa (RF-29) | Hash de `tipo+localização normalizada`; Aberto #3 |
 | R5 | **Heurística de classificação** erra topologia/tipo | Perfil de pesos e aplicabilidade errados a jusante | Confiança reportada (RF-05); fallback neutro; meta-avaliação MS-09; sobrescrita do usuário (RF-17) |
 | R6 | **Falsa sensação de avaliação comportamental** na Fase 1 | Usuário superinterpreta o laudo | `static_limitations` obrigatório (RF-13/RNF-04) em toda dimensão comportamental |
-| R7 | **LangSmith como dependência dura** | Laudo não gera se observabilidade cai | Observabilidade desacoplada do caminho crítico (3.11) |
+| R7 | **Langfuse como dependência dura** | Laudo não gera se observabilidade cai | Observabilidade desacoplada do caminho crítico (3.11) |
 | R8 | **Injeção de prompt via artefato do alvo** (prompts maliciosos lidos pelo juiz) | Juiz manipulado | Tratar conteúdo do alvo como *dado não confiável*; sandbox de prompt (delimitação/escape) nos juízes; `[risco a endereçar no TASK]` |
 | R9 | **Indisponibilidade/falha do modelo de julgamento** (outage, rate limit, output malformado) no fan-out de N chamadas | Avaliação aborta por falha pontual | Política escalonada RNF-12 (retry mesmo modelo → re-prompt → fallback declarado c/ confiança reduzida → laudo parcial); modelo primário+fallback configuráveis por nó (3.2, T-005/T-302/T-802). **v1.4:** exceções reais do SDK traduzidas no gateway (3.2c) — antes só as exceções internas eram tratadas |
 | R10 | **Degradação não determinística sob teto de custo** com ramos paralelos (v1.4) | Conjunto de dimensões degradadas varia entre execuções | Só ocorre com teto atingido (laudo já é parcial); o laudo declara as dimensões degradadas e o consumo vs. teto (4.2.8) |
@@ -477,7 +477,7 @@ Todos os testes operam sobre **fixtures de artefatos estáticos** (mini sistemas
 | RNF-12 | Política escalonada de fallback de modelo no wrapper de juiz (3.2); tradução de exceções + backoff no gateway (3.2c); config por nó (T-005); laudo parcial (3.5); declaração em metadados (R9) |
 | MS-04/07/09 | Subsistema de meta-avaliação + dataset (3.11) |
 | MS-08 | Calibração de confiança via dataset (3.11) |
-| MS-10 | Tracing LangSmith + medição periódica (3.11) |
+| MS-10 | Tracing Langfuse + medição periódica (3.11) |
 | CA-01..15 / CB-01..09 | Estratégia de testes (8) |
 | D-01 | Ponto de extensão `TargetRunner` (7) |
 | D-02 | Repositório de laudos (3.8b) |
