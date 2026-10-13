@@ -12,6 +12,7 @@ from avalia.domain.taxonomy import FindingType
 from avalia.domain.tsm import TargetStaticModel
 from avalia.evaluators.base import assemble, make_finding, model_anchor, presence, recommend
 from avalia.evaluators.checks import deterministic_outcome
+from avalia.harness_checks import presence_findings
 from avalia.judge.base import JudgeContribution
 
 RUBRIC = "performance/v1"
@@ -50,6 +51,11 @@ def evaluate_performance(
         )
         findings.append(f)
         recs.append(recommend("Usar streaming onde aplicável", Urgency.SUGESTAO, f))
+
+    # Fase 1 Tier 2 — checks de presença de harness desta dimensão (componente declarativo).
+    pf, pr = presence_findings(tsm, Dimension.PERFORMANCE)
+    findings += pf
+    recs += pr
 
     outcomes = [
         deterministic_outcome(

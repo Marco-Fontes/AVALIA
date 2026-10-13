@@ -15,6 +15,7 @@ from avalia.domain.tsm import TargetStaticModel
 from avalia.evaluators.base import assemble, make_finding, model_anchor, presence, recommend
 from avalia.evaluators.checks import deterministic_outcome
 from avalia.extract.secrets import REDACTED, is_sensitive_key
+from avalia.harness_checks import presence_findings
 from avalia.judge.base import JudgeContribution
 
 RUBRIC = "robustez/v1"
@@ -140,6 +141,11 @@ def evaluate_robustez(
                     s,
                 )
             )
+
+    # Fase 1 Tier 2 — checks de presença de harness desta dimensão (componente declarativo).
+    pf, pr = presence_findings(tsm, Dimension.ROBUSTEZ)
+    findings += pf
+    recs += pr
 
     outcomes = [
         deterministic_outcome(

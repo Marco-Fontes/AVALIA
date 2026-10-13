@@ -44,6 +44,47 @@ _TIMEOUT_KW = ("timeout", "timeout_s", "request_timeout")
 _STREAM_KW = ("stream", "streaming")
 _FALLBACK_KW = ("fallback", "fallbacks", "fallback_model")
 _VALIDATION_CALLS = ("isinstance", "validate", "model_validate", "parse_obj", "model_validate_json")
+# Fase 1 Tier 2 — presença de mecanismos de harness (sinal determinístico por chamada/kwarg).
+_STRUCTURED_OUTPUT_CALLS = ("with_structured_output",)
+_STRUCTURED_OUTPUT_KW = ("response_format", "response_model", "output_schema")
+_CHECKPOINTER_CALLS = (
+    "MemorySaver",
+    "InMemorySaver",
+    "PostgresSaver",
+    "AsyncPostgresSaver",
+    "SqliteSaver",
+    "AsyncSqliteSaver",
+    "RedisSaver",
+)
+_OBSERVABILITY_CALLS = ("getLogger", "basicConfig", "get_tracer", "LangChainTracer")
+_OBSERVABILITY_DECORATORS = ("traceable", "observe")
+# Importar um destes módulos (raiz) já é sinal de instrumentação (logging/tracing/métricas).
+_OBSERVABILITY_MODULES = frozenset(
+    {
+        "logging",
+        "opentelemetry",
+        "langsmith",
+        "langfuse",
+        "logfire",
+        "structlog",
+        "loguru",
+        "sentry_sdk",
+        "prometheus_client",
+        "datadog",
+        "ddtrace",
+    }
+)
+# Tokens no CAMINHO do import que denotam observabilidade (ex.: langchain_core.tracers.langchain).
+_OBSERVABILITY_IMPORT_TOKENS = ("tracer", "tracing", "telemetry", "logfire", "structlog", "sentry")
+
+
+def _is_observability_module(module: str) -> bool:
+    m = module.lower()
+    return m.split(".")[0] in _OBSERVABILITY_MODULES or any(
+        tok in m for tok in _OBSERVABILITY_IMPORT_TOKENS
+    )
+
+
 # T4.1 — vocabulário ESTRUTURAL para retry/fallback imperativos (não só decorador/kwarg).
 # Exigimos padrão estrutural (laço/role/try-continue), não a mera presença do nome (§10 Riscos).
 # Tokens ESPECÍFICOS de retry: "retr"/"tries" soltos casariam "retriever"/"entries" (falso
@@ -157,6 +198,8 @@ def _key_kind(key: str) -> str | None:
         return "timeout"
     if k in _STREAM_KW:
         return "streaming"
+    if k == "cache_control":
+        return "prompt_cache"
     return None
 
 
@@ -268,6 +311,12 @@ class _FileVisitor(ast.NodeVisitor):
                     symbol=sym, kind="cache", evidence=self._ev(node, sym, "error_handling")
                 )
             )
+        if any(d in _OBSERVABILITY_DECORATORS for d in decos):
+            self.error_handling.append(
+                ErrorHandling(
+                    symbol=sym, kind="observability", evidence=self._ev(node, sym, "error_handling")
+                )
+            )
         if any(h in node.name.lower() for h in _AGENT_NAME_HINTS):
             self.agents.append(
                 AgentNode(name=node.name, role="function", evidence=self._ev(node, sym, "agent"))
@@ -358,6 +407,12 @@ class _FileVisitor(ast.NodeVisitor):
             self._add_eh(node, "input_validation")
         elif fname == "with_fallbacks":
             self._add_eh(node, "fallback_modelo")
+        elif fname in _STRUCTURED_OUTPUT_CALLS:
+            self._add_eh(node, "structured_output")
+        elif fname in _CHECKPOINTER_CALLS:
+            self._add_eh(node, "checkpoint")
+        elif fname in _OBSERVABILITY_CALLS:
+            self._add_eh(node, "observability")
         for kw in node.keywords:
             if kw.arg in _PROMPT_KW and isinstance(kw.value, ast.Constant | ast.JoinedStr):
                 self.prompts.append(
@@ -390,6 +445,24 @@ class _FileVisitor(ast.NodeVisitor):
                 self._add_eh(node, "token_limit")
             elif kw.arg in _FALLBACK_KW:
                 self._add_eh(node, "fallback_modelo")
+            elif kw.arg in _STRUCTURED_OUTPUT_KW:
+                self._add_eh(node, "structured_output")
+            elif kw.arg == "cache_control":
+                self._add_eh(node, "prompt_cache")
+            elif kw.arg == "checkpointer":
+                self._add_eh(node, "checkpoint")
+            elif kw.arg == "callbacks":
+                self._add_eh(node, "observability")
+        self.generic_visit(node)
+
+    def visit_Import(self, node: ast.Import) -> None:
+        if any(_is_observability_module(a.name) for a in node.names):
+            self._add_eh(node, "observability")
+        self.generic_visit(node)
+
+    def visit_ImportFrom(self, node: ast.ImportFrom) -> None:
+        if node.module and _is_observability_module(node.module):
+            self._add_eh(node, "observability")
         self.generic_visit(node)
 
     def _add_eh(self, node: ast.AST, kind: str) -> None:

@@ -46,14 +46,9 @@ def test_uncapped_loop_lowers_orquestracao_and_overall():
 
 
 def test_categories_without_checks_are_declared_na_not_zero():
+    # Pós-Tier 2, só Memória e Skills seguem sem check determinístico → n/a declarada (roadmap).
     hc, _ = _cov(_LOOP_SEM_TETO)
-    for cat in (
-        HarnessCategory.MEMORIA,
-        HarnessCategory.SKILLS,
-        HarnessCategory.OBSERVABILIDADE,
-        HarnessCategory.EXECUCAO_DURAVEL,
-        HarnessCategory.CICLO_DE_VIDA,
-    ):
+    for cat in (HarnessCategory.MEMORIA, HarnessCategory.SKILLS):
         c = next(x for x in hc.categories if x.category is cat)
         assert c.assessed is False
         assert c.coverage is None  # n/a, não zero — fora do denominador

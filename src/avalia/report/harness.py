@@ -18,9 +18,10 @@ from avalia.domain.contracts import (
     HarnessCategoryCoverage,
     HarnessCoverageReport,
 )
-from avalia.domain.enums import Confidence, HarnessCategory
+from avalia.domain.enums import Confidence, HarnessCategory, Urgency
 from avalia.domain.taxonomy import FindingType
 from avalia.domain.tsm import TargetStaticModel
+from avalia.harness_checks import PRECONDITIONS, PRESENCE_CHECKS, precondition_met
 
 # Ordem e rótulo de exibição (mantém a numeração do checklist de origem — 13/15/17 excluídas).
 CATEGORY_META: tuple[tuple[HarnessCategory, int, str], ...] = (
@@ -90,6 +91,11 @@ _FINDING_SPEC: dict[FindingType, tuple[HarnessCategory, str, bool]] = {
     FindingType.TOOL_SEM_SCHEMA: (HarnessCategory.FERRAMENTAS, _TOOLS, True),
 }
 
+# Fase 1 Tier 2: registra os checks de presença a partir do componente declarativo (fonte única
+# — categoria e pré-condição vêm de lá, determinístico=True).
+for _c in PRESENCE_CHECKS:
+    _FINDING_SPEC[_c.finding_type] = (_c.category, _c.precondition, True)
+
 # Guarda em import: toda a taxonomia tem categoria de harness (nenhum FindingType órfão).
 _orphans = set(FindingType) - set(_FINDING_SPEC)
 if _orphans:  # pragma: no cover - guarda de desenvolvimento
@@ -105,6 +111,8 @@ _CATEGORY_CONFIDENCE: dict[HarnessCategory, Confidence] = {
     HarnessCategory.CUSTO_PERFORMANCE: Confidence.ALTO,
     HarnessCategory.AVALIACAO_CONTINUA: Confidence.ALTO,
     HarnessCategory.CICLO_DE_VIDA: Confidence.ALTO,
+    HarnessCategory.OBSERVABILIDADE: Confidence.ALTO,
+    HarnessCategory.EXECUCAO_DURAVEL: Confidence.ALTO,
     HarnessCategory.CONTEXTO: Confidence.MEDIO,
     HarnessCategory.SAIDAS_VERIFICACAO: Confidence.MEDIO,
 }
@@ -113,8 +121,6 @@ _CATEGORY_CONFIDENCE: dict[HarnessCategory, Confidence] = {
 _ROADMAP_NOTE: dict[HarnessCategory, str] = {
     HarnessCategory.MEMORIA: "sem check nesta fase — roadmap",
     HarnessCategory.SKILLS: "sem check nesta fase — roadmap",
-    HarnessCategory.OBSERVABILIDADE: "sem check nesta fase — roadmap (Tier 2)",
-    HarnessCategory.EXECUCAO_DURAVEL: "sem check nesta fase — roadmap (Tier 2)",
 }
 
 
@@ -133,7 +139,31 @@ def _precondition_met(key: str, tsm: TargetStaticModel) -> bool:
         return bool(tsm.prompts)
     if key == _CONFIGS:
         return bool(tsm.configs) or bool(tsm.model_assignments)
+    if key in PRECONDITIONS:  # py_model / py_graph (Tier 2) — fonte única no componente
+        return precondition_met(key, tsm)
     return False
+
+
+def category_situation(c: HarnessCategoryCoverage) -> str:
+    """Resumo da situação de uma categoria para exibição (CLI/MD). Separa achados que reprovam
+    (crítico/importante) de sugestões, para a cobertura e o texto contarem a mesma história."""
+    if not c.assessed:
+        return c.note or "sem check nesta fase"
+    blockers = sorted(
+        {
+            f.finding_type.value
+            for f in c.findings
+            if f.urgency in (Urgency.CRITICO, Urgency.IMPORTANTE)
+        }
+    )
+    suggestions = sorted(
+        {f.finding_type.value for f in c.findings if f.urgency is Urgency.SUGESTAO}
+    )
+    if blockers:
+        return f"{len(blockers)} achado(s): {', '.join(blockers)}"
+    if suggestions:
+        return f"ok · sugestão: {', '.join(suggestions)}"
+    return c.note or "ok"
 
 
 def compute_harness_coverage(
@@ -152,7 +182,13 @@ def compute_harness_coverage(
     total_applicable = total_passed = 0
     for cat, _num, _label in CATEGORY_META:
         cat_fts = [ft for ft, spec in _FINDING_SPEC.items() if spec[0] is cat]
-        fired = {f.finding_type for f in findings_by_cat[cat]}
+        # Só achados CRÍTICO/IMPORTANTE reduzem a cobertura; SUGESTÃO aparece, mas não "reprova"
+        # a categoria (evita 0% por um nice-to-have ausente, ex.: prompt caching).
+        fired = {
+            f.finding_type
+            for f in findings_by_cat[cat]
+            if f.urgency in (Urgency.CRITICO, Urgency.IMPORTANTE)
+        }
         applicable = {
             ft
             for ft in cat_fts

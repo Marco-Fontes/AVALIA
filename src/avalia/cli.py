@@ -30,7 +30,7 @@ from avalia.hitl.runner import run_evaluation
 from avalia.loader import read_target_directory
 from avalia.model_gateway.roles import ModelRole
 from avalia.persistence.repository import ReportRepository
-from avalia.report.harness import CATEGORY_META
+from avalia.report.harness import CATEGORY_META, category_situation
 from avalia.report.render import (
     describe_budget_usage,
     render_json,
@@ -197,17 +197,11 @@ def _summary(report: EvaluationReport, status: RunStatus, mode: str, out_paths: 
         for c in hc.categories:
             num, label = meta_by_cat[c.category]
             if not c.assessed:
-                situ = c.note or "sem check nesta fase"
-                lines.append(f"    {num:>2}. {label:<{label_w}}  n/a   {situ}")
+                lines.append(f"    {num:>2}. {label:<{label_w}}  n/a   {category_situation(c)}")
                 continue
-            if c.findings:
-                types = ", ".join(sorted({f.finding_type.value for f in c.findings}))
-                situ = f"{len(c.findings)} achado(s): {types}"
-            else:
-                situ = c.note or "ok"
             lines.append(
                 f"    {num:>2}. {label:<{label_w}}  {c.coverage:>3}%  conf. {c.confidence.value}"
-                f"   {situ}"
+                f"   {category_situation(c)}"
             )
     cls = h.classification
     lines.append(

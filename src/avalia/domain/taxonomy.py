@@ -59,6 +59,11 @@ class FindingType(StrEnum):
     # --- Fase 1 Tier 1: ciclo de vida (Custo) e ferramentas (Trajetória) ---
     MODELO_SEM_VERSAO_FIXA = "modelo_sem_versao_fixa"
     TOOL_SEM_SCHEMA = "tool_sem_schema"
+    # --- Fase 1 Tier 2: presença de mecanismos de harness (checagem determinística) ---
+    SEM_SAIDA_ESTRUTURADA = "sem_saida_estruturada"  # harness: Saídas/verificação (Robustez)
+    SEM_PROMPT_CACHE = "sem_prompt_cache"  # harness: Contexto (Custo)
+    SEM_CHECKPOINT_ESTADO = "sem_checkpoint_estado"  # harness: Execução durável (Robustez)
+    SEM_OBSERVABILIDADE = "sem_observabilidade"  # harness: Observabilidade (Performance)
     # --- Contradições config↔código (CB-08, T-106) — atribuídas à dimensão afetada ---
     CONTRADICAO_MODELO_CONFIG = "contradicao_modelo_config"  # modelo declarado ≠ usado (Custo)
     CONTRADICAO_FLUXO_PROMPT = "contradicao_fluxo_prompt"  # prompt assume fluxo inexistente (Traj.)
@@ -96,6 +101,10 @@ FINDING_TYPE_DIMENSION: dict[FindingType, Dimension] = {
     FindingType.SEGREDO_HARDCODED: Dimension.ROBUSTEZ,
     FindingType.MODELO_SEM_VERSAO_FIXA: Dimension.CUSTO,
     FindingType.TOOL_SEM_SCHEMA: Dimension.TRAJETORIA,
+    FindingType.SEM_SAIDA_ESTRUTURADA: Dimension.ROBUSTEZ,
+    FindingType.SEM_PROMPT_CACHE: Dimension.CUSTO,
+    FindingType.SEM_CHECKPOINT_ESTADO: Dimension.ROBUSTEZ,
+    FindingType.SEM_OBSERVABILIDADE: Dimension.PERFORMANCE,
     # Contradições (CB-08, T-106): cada uma na dimensão afetada (regra 4).
     FindingType.CONTRADICAO_MODELO_CONFIG: Dimension.CUSTO,
     FindingType.CONTRADICAO_FLUXO_PROMPT: Dimension.TRAJETORIA,

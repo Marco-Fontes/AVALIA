@@ -16,7 +16,7 @@ from avalia.domain.contracts import (
     HarnessCoverageReport,
 )
 from avalia.domain.enums import Urgency
-from avalia.report.harness import CATEGORY_META
+from avalia.report.harness import CATEGORY_META, category_situation
 
 _URGENCY_RANK = {Urgency.CRITICO: 3, Urgency.IMPORTANTE: 2, Urgency.SUGESTAO: 1}
 _CATEGORY_LABEL = {cat: (num, label) for cat, num, label in CATEGORY_META}
@@ -54,17 +54,11 @@ def _harness_section(hc: HarnessCoverageReport) -> list[str]:
     for c in hc.categories:
         num, label = _CATEGORY_LABEL[c.category]
         if not c.assessed:
-            situacao = c.note or "sem check nesta fase"
-            lines.append(f"| {num} | {label} | n/a | — | {situacao} |")
+            lines.append(f"| {num} | {label} | n/a | — | {category_situation(c)} |")
             continue
-        cobertura = f"{c.coverage}%"
-        conf = c.confidence.value
-        if c.findings:
-            types = ", ".join(sorted({f.finding_type.value for f in c.findings}))
-            situacao = f"{len(c.findings)} achado(s): {types}"
-        else:
-            situacao = c.note or "nenhum achado"
-        lines.append(f"| {num} | {label} | {cobertura} | {conf} | {situacao} |")
+        lines.append(
+            f"| {num} | {label} | {c.coverage}% | {c.confidence.value} | {category_situation(c)} |"
+        )
     lines.append("")
     return lines
 
