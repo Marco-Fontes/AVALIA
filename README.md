@@ -124,8 +124,10 @@ durável, configure por ambiente — o código já suporta, só falta a infraest
   `EvaluatorConfig(model_prices=load_model_prices("precos.yaml"))`.
 - **Um `thread_id` por avaliação.** `run_evaluation` gera um por omissão; informe o mesmo só para
   **retomar** a mesma avaliação (HITL). Reusar o de uma avaliação concluída é recusado.
-- **Observabilidade (MS-10).** Tracing é **opcional e não-bloqueante**: ligue com
-  `AVALIA_TRACING=1` (+ `LANGSMITH_API_KEY`); ausente, o laudo é gerado igual.
+- **Observabilidade (MS-10).** Tracing é **opcional e não-bloqueante**, via **Langfuse**
+  (gratuito/self-hostável): instale com `pip install -e ".[observability]"` e configure
+  `LANGFUSE_PUBLIC_KEY`, `LANGFUSE_SECRET_KEY` e `LANGFUSE_BASE_URL` (padrão
+  `https://cloud.langfuse.com`) — ou force com `AVALIA_TRACING=1`. Ausente, o laudo é gerado igual.
 - **API/serviço HTTP:** deliberadamente **adiado** (avaliar antes de construir — sem auth na Fase 1,
   EC-05). O avaliador roda hoje via CLI ou `build_avalia_graph().invoke`.
 
