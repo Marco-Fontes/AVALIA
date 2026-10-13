@@ -1,6 +1,6 @@
-"""T-901 — Tracing não-bloqueante (MS-10): spans in-process + LangSmith opcional.
+"""T-901 — Tracing não-bloqueante (MS-10): spans in-process + Langfuse opcional.
 
-O grafo roda sobre texto estático; nada executa o alvo (RNF-05). LangSmith NÃO é exigido.
+O grafo roda sobre texto estático; nada executa o alvo (RNF-05). Langfuse NÃO é exigido.
 """
 
 from __future__ import annotations
@@ -10,7 +10,7 @@ import pytest
 from avalia.domain.submission import Submission, TargetMetadata
 from avalia.graph.build_graph import build_avalia_graph
 from avalia.obs.spans import NodeSpan, SpanCollector
-from avalia.obs.tracing import instrument_config, is_tracing_enabled, langsmith_callbacks
+from avalia.obs.tracing import instrument_config, is_tracing_enabled, langfuse_callbacks
 
 pytestmark = pytest.mark.fast
 
@@ -29,12 +29,17 @@ def _run(collector: SpanCollector | None = None, env=None) -> dict:
     return graph.invoke({"submission": sub}, config=cfg)
 
 
-def test_tracing_disabled_yields_no_langsmith_callbacks():
+def test_tracing_disabled_yields_no_langfuse_callbacks():
     assert is_tracing_enabled({}) is False
-    assert langsmith_callbacks({}) == []  # ausência/desligado nunca levanta (plan §3.11)
+    assert langfuse_callbacks({}) == []  # ausência/desligado nunca levanta (plan §3.11)
 
 
-def test_report_is_generated_without_langsmith():
+def test_langfuse_keys_enable_tracing():
+    # Definir as chaves Langfuse já liga o tracing (sem precisar de AVALIA_TRACING).
+    assert is_tracing_enabled({"LANGFUSE_PUBLIC_KEY": "pk", "LANGFUSE_SECRET_KEY": "sk"}) is True
+
+
+def test_report_is_generated_without_langfuse():
     # DoD MS-10: o laudo gera mesmo sem observabilidade configurada (não-bloqueante).
     result = _run(env={})
     assert result.get("report") is not None

@@ -22,6 +22,7 @@ from avalia.evaluators.base import (
 )
 from avalia.evaluators.checks import deterministic_outcome
 from avalia.extract.contradictions import detect_contradictions
+from avalia.harness_checks import presence_findings
 from avalia.judge.base import JudgeContribution
 
 RUBRIC = "custo/v1"
@@ -104,6 +105,11 @@ def evaluate_custo(
             recs.append(
                 recommend(f"Fixar a versão do modelo em `{item.key}`", Urgency.IMPORTANTE, m)
             )
+
+    # Fase 1 Tier 2 — checks de presença de harness desta dimensão (componente declarativo).
+    pf, pr = presence_findings(tsm, Dimension.CUSTO)
+    findings += pf
+    recs += pr
 
     # T-106: contradições modelo declarado≠usado (dimensão dona = Custo, regra 4) — CB-08.
     contradictions = [f for f in detect_contradictions(tsm) if f.dimension is Dimension.CUSTO]
